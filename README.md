@@ -8,6 +8,16 @@
 ## tools
 merge_vcf.py 用于合并两个vcf文件，对两个vcf文件取SNP位置以及等位基因信息的交集
 
+tips : bcftools同样能快速达到目的
+
+```shell
+bcftools isec A.vcf.gz B.vcf.gz -p dir
+```
+
+[bcftools参开文档]: https://www.jianshu.com/p/99895c7338b2
+
+
+
 ### GWAS_composite_graph_drawing/main.py
 
 GWAS组合图绘制：曼哈顿图、倒三角、基因/block 对应的单倍型与表型箱线图、LD连锁图。
