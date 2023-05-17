@@ -4,7 +4,7 @@ import argparse
 import manhattanHap
 import block
 import datetime
-
+import plot_log
 
 if __name__ == '__main__':
 
@@ -78,7 +78,7 @@ if __name__ == '__main__':
 
 
     args = parser.parse_args()
-
+    my_log = plot_log.Log()
     # 根据`mode`参数选择要执行的操作
     if args.mode == 'all':
         vcf_path = args.vcf
@@ -98,17 +98,18 @@ if __name__ == '__main__':
         chunksize = args.chunksize
         step = args.step
         top = args.top
-        print(datetime.datetime.now(), f"GWAS组合图开始绘制")
+        my_log.info(f"GWAS组合图开始绘制")
         man_run = manhattanHap.Mantattan(mantattan, chrs, snp_pos, ranges, threshold, outdir)
         man_run.plot_mantattan()
-        print(datetime.datetime.now(), f"曼哈顿绘制完成")
+        my_log.info(f"曼哈顿绘制完成")
         triangle_run = manhattanHap.Triangles(vcf_path, chrs, snp_pos, ranges, outdir)
         triangle_run.run()
-        print(datetime.datetime.now(), f"倒三角绘制完成")
+        my_log.info(f"倒三角绘制完成")
+
         hap_run = block.Hap(gff, gene_id, vcf_path, chrlist, pop_list, phe_path, outdir, pool, chunksize, step, top)
         hap_run.main()
 
-        print(datetime.datetime.now(),f"所有图绘制完成")
+        my_log.info(f"所有图绘制完成")
     elif args.mode == 'ManTriangles':
         vcf_path = args.vcf
         mantattan = args.mantattan
@@ -117,13 +118,13 @@ if __name__ == '__main__':
         threshold = args.threshold
         ranges = args.ranges
         outdir = args.outdir
-        print(datetime.datetime.now(), f"曼哈顿、倒三角开始绘制")
+        my_log.info(f"曼哈顿、倒三角开始绘制")
         run1 = manhattanHap.Mantattan(mantattan, chrs, snp_pos, ranges, threshold, outdir)
         run1.plot_mantattan()
-        print(datetime.datetime.now(), f"曼哈顿绘制完成")
+        my_log.info(f"曼哈顿绘制完成")
         run2 = manhattanHap.Triangles(vcf_path, chrs, snp_pos, ranges, outdir)
         run2.run()
-        print(datetime.datetime.now(), f"倒三角绘制完成")
+        my_log.info(f"倒三角绘制完成")
 
     elif args.mode == 'plot_Hap':
 
@@ -139,10 +140,10 @@ if __name__ == '__main__':
         chunksize = args.chunksize
         step = args.step
         top = args.top
-        print(datetime.datetime.now(), f"基因与block单倍型相关图形开始绘制")
+        my_log.info(f"基因与block单倍型相关图形开始绘制")
         hap_run = block.Hap(gff, gene_id, vcf_path, chrlist, pop_list, phe_path, outdir, pool, chunksize, step, top)
         hap_run.main()
-        print(datetime.datetime.now(), f"绘制完成")
+        my_log.info(f"绘制完成")
     elif args.mode == 'one_Hap':
 
         vcf_path = args.vcf
@@ -158,10 +159,11 @@ if __name__ == '__main__':
         step = args.step
         top = args.top
         type_choices = args.type
+
         hap_run = block.Hap(gff, gene_id, vcf_path, chrlist, pop_list, phe_path, outdir, pool, chunksize, step, top)
         hap_run.vcf_filter()
         if type_choices == 'gene':
             hap_run.gene_main()
         else:
             hap_run.block_main()
-        print(datetime.datetime.now(),f" {type_choices} 绘制完成")
+        my_log.info(f" {type_choices} 绘制完成")

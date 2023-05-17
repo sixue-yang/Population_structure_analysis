@@ -4,6 +4,7 @@ import pandas as pd
 import os
 import subprocess as sp
 import sys
+import plot_log
 
 # 环境固定参数
 Rscript = '/work1/Software/R3/bin/Rscript'
@@ -12,9 +13,9 @@ perl = '/work1/Users/wangtianyi/03.Software/01.Perl/perl/bin/perl'
 haploview = '/work1/Software/haploview/bin/haploview'
 plink = '/work1/Software/Plink/bin/plink'
 # 脚本固定参数设置
-trans_perl = '/work1/Users/jingxin/Pipeline/gwas_haplotype_mahateen_draw/trans2.pl'
+trans_perl = '/work1/Users/yangsixue/pipline/GWAS_block_anlysis/script/trans2.pl'
 # 曼哈顿图绘制
-Mantattan_plot_R = '/work1/Users/jingxin/Pipeline/gwas_draw_gene_all_pip/draw.region.manhateen.R'
+Mantattan_plot_R = '/work1/Users/yangsixue/pipline/GWAS_block_anlysis/script/draw.region.manhateen.R'
 # block 倒三角
 Block_triangle_plot_R = '/work1/Users/yangsixue/pipline/GWAS_block_anlysis/script/LDheatmap.R'
 
@@ -40,6 +41,9 @@ return:
     曼哈顿图
 '''
 
+# 实例化日志模块
+mylog = plot_log.Log()
+
 class Mantattan:
     def __init__(self,mantattan,chrs,snp_pos,range,threshold,outdir):
         self.mantattan = mantattan
@@ -55,14 +59,17 @@ class Mantattan:
         self.draw_path = self.out_dir + os.sep + "mantattan.draw.data"
         _df = self.data_filter()
         _df.to_csv(self.draw_path,sep='\t',index=False,header=None)
+        mylog.info('开始绘制曼哈顿。')
 
     # 曼哈顿数据依据染色体号及区域过滤
     def data_filter(self):
+        mylog.info('根据染色体及起始位置和终止位置过滤曼哈顿数据。')
         data = pd.read_csv(self.mantattan,sep='\t',header=None)
         return data[(data[0]==self.chrs)&(data[1]>=self.star)&(data[1]<=self.end)]
     # 绘图
     def plot_mantattan(self):
         cmd = f'{Rscript} {Mantattan_plot_R} {self.draw_path} {self.star} {self.end} {self.chrs} {self.threshold} {self.snp_pos} {self.outmantattan}'
+        mylog.debug(f'运行绘制曼哈顿脚本:\n{cmd}')
         sp.call(cmd,shell=True)
 
 
@@ -101,6 +108,7 @@ class Triangles:
         self.end = int(snp_pos) + int(range)
         self.out_dir = outdir + os.sep + '02.Triangles'
         checkDir(self.out_dir)
+        mylog.info('开始绘制倒三角。')
         self.out_file = self.out_dir + os.sep + 'triangles'
 
 
@@ -108,9 +116,10 @@ class Triangles:
         # vcftools 提取SNP位点并输出为ped与map
         vcf2ped_cmd = f'{vcftools} --gzvcf {self.vcf_path} --chr {self.chrs} --from-bp {self.star} --to-bp {self.end} --plink-tped --out {self.out_file}'
         ped_trun_cmd = f'{plink} --tfile {self.out_file} --recode --out {self.out_file}'
-
+        mylog.debug(f'利用vcftools以及plink将vcf文件转为ped和map文件:\n{vcf2ped_cmd}\n{ped_trun_cmd}')
         sp.call(vcf2ped_cmd,shell=True)
         sp.call(ped_trun_cmd, shell=True)
+        mylog.info('转换map至info;转换ped文件中ATCG碱基值以及家系列修改为-9')
         with open(f'{self.out_file}.map') as map_file,open(f'{self.out_file}.info','w') as info,open(f'{self.out_file}.ped') as ped_obj,open(f'{self.out_file}.trans.ped','w') as trans_obj:
             # 转换map至info
             for line in map_file:
@@ -124,9 +133,11 @@ class Triangles:
         trans1_cmd = f'cut -f 1 {self.out_file}.LD |sort -u|sort -t ":" -k1,1 -k2n,2  >{self.out_file}.LD.mark'
         trans2_cmd = f'{perl} {trans_perl} {self.out_file}.LD {self.out_file}.LD.mark {self.out_file}.LD.input'
         triangles_plot = f'{Rscript} {Block_triangle_plot_R} --file {self.out_file}.LD.input --out {self.out_file}.block_LDheatmap.png'
-        print(triangles_plot)
+        # print(triangles_plot)
         cmd_list = [haploview_cmd,trans1_cmd,trans2_cmd,triangles_plot]
+        mylog.info('开始计算LD矩阵并绘图')
         for cmds in cmd_list:
+            mylog.debug(cmds)
             sp.call(cmds,shell=True)
 
 
