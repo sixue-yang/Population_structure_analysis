@@ -92,8 +92,11 @@ $svg->text('x', 650 , 'y', 65, '-cdata', "Intron", 'text-anchor', 'middle', 'fon
 
 ##############draw SNP##############
 
-
+if ($ARGV[2]=~/\.gz/){
+open IN3,"<:gzip",$ARGV[2] or die $!;
+}else{
 open IN3,$ARGV[2] or die $!;
+}
 my $e = 0;
 while (<IN3>){
 	chomp;
@@ -108,8 +111,11 @@ while (<IN3>){
 close IN3;
 
 my $w = 2200/$e;
-
+if ($ARGV[2]=~/\.gz/){
+open IN4,"<:gzip",$ARGV[2] or die $!;
+}else{
 open IN4,$ARGV[2] or die $!;
+}
 my $m = 0;
 while (<IN4>){
         chomp;
@@ -160,6 +166,8 @@ while (<IN6>){
                         $svg->rect('x', 200 + $u*$w, 'y', 300 +$nn, 'width', $w , 'height',  $win2, 'stroke', "none", 'fill', "#5874DC");
                 }elsif($i eq "-"){
                         $svg->rect('x', 200 + $u*$w, 'y', 300 +$nn, 'width', $w , 'height',  $win2, 'stroke', "none", 'fill', "#384E78");
+                }elsif($i eq "H"){
+                        $svg->rect('x', 200 + $u*$w, 'y', 300 +$nn, 'width', $w , 'height',  $win2, 'stroke', "none", 'fill', "#ababa9");
                 }
 		$u++;
         }
@@ -171,14 +179,16 @@ $svg->rect('x', 300 , 'y',1350,   'width', 50 , 'height',  30, 'stroke', "black"
 $svg->rect('x', 400 , 'y',1350,   'width', 50 , 'height',  30, 'stroke', "black", 'fill', "#FA9284");
 $svg->rect('x', 500 , 'y',1350,   'width', 50 , 'height',  30, 'stroke', "black", 'fill', "#E06C78");
 $svg->rect('x', 600 , 'y',1350,   'width', 50 , 'height',  30, 'stroke', "black", 'fill', "#5874DC");
-$svg->rect('x', 700 , 'y',1350,   'width', 50 , 'height',  30, 'stroke', "black", 'fill', "#384E78");
+$svg->rect('x', 700 , 'y',1350,   'width', 50 , 'height',  30, 'stroke', "black", 'fill', "#ababa9");
+$svg->rect('x', 800 , 'y',1350,   'width', 50 , 'height',  30, 'stroke', "black", 'fill', "#384E78");
 
 
 $svg->text('x', 370 , 'y', 1375, '-cdata', "A", 'text-anchor', 'middle', 'font-size', 30);
 $svg->text('x', 470 , 'y', 1375, '-cdata', "T", 'text-anchor', 'middle', 'font-size', 30);
 $svg->text('x', 570 , 'y', 1375, '-cdata', "C", 'text-anchor', 'middle', 'font-size', 30);
 $svg->text('x', 670 , 'y', 1375, '-cdata', "G", 'text-anchor', 'middle', 'font-size', 30);
-$svg->text('x', 770 , 'y', 1375, '-cdata', "-", 'text-anchor', 'middle', 'font-size', 30);
+$svg->text('x', 770 , 'y', 1375, '-cdata', "H", 'text-anchor', 'middle', 'font-size', 30);
+$svg->text('x', 870 , 'y', 1375, '-cdata', "-", 'text-anchor', 'middle', 'font-size', 30);
 
 
 

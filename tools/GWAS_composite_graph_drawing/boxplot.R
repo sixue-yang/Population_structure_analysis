@@ -61,4 +61,6 @@ p = ggplot(result,aes(x=Hap, y=Pheno,group=Hap)) +
   theme_bw()+
   theme(panel.grid=element_blank(),legend.position = "None")
 p
-ggsave(p,filename=outfile)
+ggsave(p,filename=outfile,width=4, height=4.5)
+new_file_name <- sub("\\.pdf$", ".png", outfile)
+ggsave(p,filename=new_file_name,width=4, height=4.5)

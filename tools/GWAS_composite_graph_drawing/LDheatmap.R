@@ -46,6 +46,11 @@ distance=as.numeric(dis)
 rgb.palette <- colorRampPalette(rev(c("yellow", "red")), space = "rgb")
 
 filename=paste(outfile,sep="")
-png(filename,type="cairo",height=600,width=1000)
-LDheatmap(LD, distance,color=rgb.palette(100),flip=TRUE)
+png(filename,type="cairo",height=1600,width=2400)
+LDheatmap(LD, distance,color=rgb.palette(100),flip=TRUE,title=NULL)
 dev.off()
+
+pdf(paste0(filename,'.pdf'))
+LDheatmap(LD, distance,color=rgb.palette(100),flip=TRUE,title=NULL)
+dev.off()
+

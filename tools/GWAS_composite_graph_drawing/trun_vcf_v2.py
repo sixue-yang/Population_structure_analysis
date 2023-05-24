@@ -36,10 +36,10 @@ def prepare_data(data):
                           columns=[f'snp{i}' for i in range(1, int(snp_num) + 1)])
 
     # 输出用于绘制LD连锁
-    rmfa = pd.DataFrame(snp_data.apply(lambda x: ''.join(x), axis=1),columns=['seq'])
-    rmfa = rmfa.reset_index(drop=True)
-    rmfa_df = pd.concat([sample_data, rmfa], axis=1)
-    rmfa_df.columns = ['sample','seq']
+    # rmfa = pd.DataFrame(snp_data.apply(lambda x: ''.join(x), axis=1),columns=['seq'])
+    # rmfa = rmfa.reset_index(drop=True)
+    # rmfa_df = pd.concat([sample_data, rmfa], axis=1)
+    # rmfa_df.columns = ['sample','seq']
 
 
     b_df = new_df.applymap(compare_and_remove)
@@ -50,7 +50,7 @@ def prepare_data(data):
 
 
 
-    return trun_data,rmfa_df
+    return trun_data
 
 
 def read_ped(ped_path,chunksize:int,max_pool:int,out_file:str):
@@ -59,14 +59,14 @@ def read_ped(ped_path,chunksize:int,max_pool:int,out_file:str):
             with Pool(processes=max_pool) as pool:
                 result = pool.apply_async(prepare_data, (chunk,))
 
-                chunk,rmfa = result.get()  # 等待子进程结束后进行后续步骤
+                chunk = result.get()  # 等待子进程结束后进行后续步骤
                 print(chunk.to_csv(sep='\t',index=False,header=False),file=f,end='')
                 # print(rmfa)
                 # print()
-                for index in rmfa.index:
+                for index in chunk.index:
                     # print(index)
                     # print(rmfa.loc[index,:].to_list())
-                    ids,seq = rmfa.loc[index,:].to_list()
+                    ids,seq = chunk.loc[index,:].to_list()
 
                     print(f'>{ids}\n{seq}',file=rmfa_obj)
                 del chunk # 删除chunk以释放内存

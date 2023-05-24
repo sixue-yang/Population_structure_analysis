@@ -1,10 +1,45 @@
 # _author_ = 'sixueyang'
 # _date_ = 2023/4/27 9:33
 import argparse
+import os
+import subprocess as sp
 import manhattanHap
 import block
 import datetime
 import plot_log
+
+
+
+
+# 合并图并生成组合图
+def merge_plot(man_plot,triangles_plot,gene_box,block_box,LD_plot):
+    my_log.info('开始生成组合图')
+    merge_outdir = outdir + os.sep + '04.Merge'
+    manhattanHap.checkDir(merge_outdir)
+    cmd_01 = f'convert {man_plot} {triangles_plot} -gravity center -append {merge_outdir + os.sep + "01.png"}'
+    my_log.info('开始合并曼哈顿图和倒三角')
+    my_log.debug(f'{cmd_01}')
+    sp.call(cmd_01,shell=True)
+    cmd_trun = f'convert -background white {LD_plot} {merge_outdir + os.sep + "gene.png"}'
+
+    my_log.info(f'开始将LD连锁图转化为PNG\n{cmd_trun}')
+    sp.call(cmd_trun, shell=True)
+    cmd_02 = f'convert {block_box} {gene_box} +append {merge_outdir + os.sep + "gene.png"} -append -gravity center {merge_outdir + os.sep + "02.png"}'
+    my_log.info(f'开始合并LD连锁图箱线图\n{cmd_02}')
+    sp.call(cmd_02, shell=True)
+    cmd_03 = f'convert {merge_outdir + os.sep + "01.png"} {merge_outdir + os.sep + "02.png"}  -gravity center +append {merge_outdir + os.sep + "result.png"}'
+    my_log.info(f'开始绘制组合图\n{cmd_03}')
+    sp.call(cmd_03,shell=True)
+    # 删除中间文件
+    os.remove(merge_outdir + os.sep + "01.png")
+    os.remove(merge_outdir + os.sep + "02.png")
+    os.remove(merge_outdir + os.sep + "gene.png")
+
+
+
+
+
+
 
 if __name__ == '__main__':
 
@@ -108,7 +143,13 @@ if __name__ == '__main__':
 
         hap_run = block.Hap(gff, gene_id, vcf_path, chrlist, pop_list, phe_path, outdir, pool, chunksize, step, top)
         hap_run.main()
-
+        my_log.info(f"开始合并图像制作组合图")
+        man_plot = outdir + os.sep + '01.Mantattan' + os.sep + 'mantattan.png'
+        triangles_plot = outdir + os.sep + '02.Triangles' + os.sep + 'triangles.block_LDheatmap.png'
+        gene_box = outdir + os.sep + '03.Hap' + os.sep + '01.gene' + os.sep + 'gene.boxplot.png'
+        block_box = outdir + os.sep + '03.Hap' + os.sep + '02.block' + os.sep + 'block.boxplot.png'
+        LD_plot = outdir + os.sep + '03.Hap' + os.sep + '01.gene' + os.sep + 'gene.svg'
+        merge_plot(man_plot, triangles_plot, gene_box, block_box, LD_plot)
         my_log.info(f"所有图绘制完成")
     elif args.mode == 'ManTriangles':
         vcf_path = args.vcf

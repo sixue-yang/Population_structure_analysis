@@ -221,7 +221,7 @@ class Hap:
         sp.call(cmd,shell=True)
 
         # 画连锁图
-        ld_cmd = f'{perl} {LD_perl} {self.gff_path} {self.gene_id} {self.gene_vcf_path} {self.gene_result_dir + os.sep + "gene.rmfa"} {self.sample_list} > {self.gene_result_dir + os.sep + "gene.LD.svg"}'
+        ld_cmd = f'{perl} {LD_perl} {self.gff_path} {self.gene_id} {self.gene_vcf_path} {self.gene_result_dir + os.sep + "gene.rmfa"} {self.sample_list} > {self.gene_result_dir + os.sep + "gene.svg"}'
         my_log.debug(f'绘制基因连锁图:\n{ld_cmd}')
         sp.call(ld_cmd,shell=True)
         my_log.info(f'基因绘图结束')
@@ -253,10 +253,11 @@ class Hap:
             cmd = f'{Rscript} {box_plot_R} --file {self.block_boxplot_data} --out {self.block_boxplot_pdf} --top {self.box_top}'
             my_log.debug(f'block--单倍型箱线图绘制:\n{cmd}')
             sp.call(cmd,shell=True)
-
+            '''
             ld_cmd = f'{perl} {LD_perl} {self.gff_path} {self.gene_id} {self.block_vcf_path} {self.block_result_dir + os.sep + "block.rmfa"} {self.sample_list} > {self.block_result_dir + os.sep + "block.LD.svg"}'
             my_log.debug(f'block连锁图绘制:\n{ld_cmd}')
             sp.call(ld_cmd,shell=True)
+            '''
             my_log.info(f'block单倍型绘图结束')
             # print(datetime.datetime.now(), 'block绘图结束')
         else:
@@ -269,10 +270,20 @@ class Hap:
     def main(self):
         # vcf 染色体过滤
         self.vcf_filter()
-        t1 = threading.Thread(target=self.gene_main)
-        t2 = threading.Thread(target=self.block_main)
-        t1.start()
-        t2.start()
+        threads = []
+        func_list = [self.gene_main,self.block_main]
+        for i in func_list:
+            t = threading.Thread(target=i)
+            t.start()
+            threads.append(t)
+
+        # 阻塞方法
+        for t in threads:
+            t.join()
+        # t1 = threading.Thread(target=self.gene_main)
+        # t2 = threading.Thread(target=self.block_main)
+        # t1.start()
+        # t2.start()
 
 
 
