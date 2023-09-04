@@ -155,4 +155,138 @@ python /work1/Users/yangsixue/pipline/GWAS_block_anlysis/script/main.py all -vcf
 
 
 
-​	
+## Sleep
+
+群体项目中选择分析流程。
+
+在原基础上进行环境及输出，XPCLR计算，KEGG、GO富集的优化。
+
+### 快速 运行
+
+```shell
+python sleep_main_v1.py -p [分群文件] -v [基础标记] -c [染色体编号] -b [基因的bed文件] -g [基因功能文件] -r [参考基因组] -S [KEGG物种缩写，默认为osa] -t [选择top的阈值,默认选取前百分之5,，0.05] -s [过滤SNP的阈值,默认过滤SNP数量小于2的窗口] -win [窗口长度] -step [步长] -job [最大任务数,默认100] -wt [qsub投递后等待结果时间,默认300秒]
+```
+
+
+
+#### 参数文件说明
+
+##### 分群文件
+
+```
+# 第一列为样本，第二列为分群信息，列间使用tab键分隔
+L266    P3
+L267    P3
+L297    P3
+L189    P3
+L905    P4
+L1033   P2
+L854    P2
+L815    P2
+L400    P2
+L176    P2
+L751    P2
+L1050   P2
+L1500   P7
+L463    P7
+L1495   P7
+L51     P2
+```
+
+##### 基础标记
+
+基本VCF文件，需要gz格式压缩
+
+##### 染色体编号列表
+
+```
+# 染色体号
+chr01
+chr02
+chr03
+chr04
+chr05
+chr06
+chr07
+chr08
+chr09
+chr10
+chr11
+chr12
+```
+
+##### 基因的bed文件格式
+
+```
+# 染色体、起始位置、终止位置、基因，四列使用tab键分隔
+chr01   2983    10815   Os01t0100100-01
+chr01   11218   12435   Os01t0100200-01
+chr01   11372   12284   Os01t0100300-00
+chr01   12721   15685   Os01t0100400-01
+chr01   12808   13978   Os01t0100466-00
+chr01   16399   20144   Os01t0100500-01
+chr01   22841   26892   Os01t0100600-01
+chr01   25861   26424   Os01t0100650-00
+chr01   27143   28644   Os01t0100700-01
+chr01   29818   34453   Os01t0100800-01
+chr01   35623   41136   Os01t0100900-01
+chr01   58658   61090   Os01t0101150-00
+chr01   60091   61086   Os01t0101175-00
+chr01   62060   63576   Os01t0101200-01
+chr01   62112   65537   Os01t0101200-02
+```
+
+##### 基因功能文件
+
+```
+# Gene_id Gene_id Function 列与列之间tab键分隔，表头如下
+Gene_id Gene_id Function
+Os01t0100100-01 Os01t0100100-01 sp|Q8BPQ7|SGSM1_MOUSE Small G protein signaling modulator 1 OS=Mus musculus GN=Sgsm1 PE=1 SV=2//7.06116e-22
+Os01t0100200-01 Os01t0100200-01 sp|Q9LUC6|C7A14_ARATH Cytochrome P450 72A14 OS=Arabidopsis thaliana GN=CYP72A14 PE=2 SV=1//4.25192e-10
+Os01t0100300-00 Os01t0100300-00 sp|Q9LUC6|C7A14_ARATH Cytochrome P450 72A14 OS=Arabidopsis thaliana GN=CYP72A14 PE=2 SV=1//4.12212e-10
+Os01t0100400-01 Os01t0100400-01 sp|Q9SU40|SKU5_ARATH Monocopper oxidase-like protein SKU5 OS=Arabidopsis thaliana GN=SKU5 PE=1 SV=1//0
+Os01t0100466-00 Os01t0100466-00 sp|Q9SU40|SKU5_ARATH Monocopper oxidase-like protein SKU5 OS=Arabidopsis thaliana GN=SKU5 PE=1 SV=1//6.98866e-16
+Os01t0100500-01 Os01t0100500-01 -//-
+Os01t0100600-01 Os01t0100600-01 -//-
+Os01t0100650-00 Os01t0100650-00 -//-
+```
+
+
+
+#### 结果说明
+
+```shell
+01.Prepare/            # 各个分析模块分析前准备文件目录
+02.Analysis/           # 各个分析模块分析结果目录
+03.Top/                # Top 筛选后各个窗口的结果及基因
+04.Enrich/             # 根据筛选后的基因进行KEGG及GO富集的结果
+05.Result/             # 释放的结果目录
+	[每一个群体组合]
+		Arrange        # 存放几种方法的结果整理数据
+			*total.value.xls  # 所有方法原始分析结果数据合并
+			*top.value.xls    # 所有方法筛选后窗口数据合并结果
+			*gene.stat.xls    # 基因维度，各种方法是否受选择及对应功能
+			*win_sleep.xls    # 各个窗口，各种方法是否受选择统计
+		Manhattan      # 各种选择方法曼哈顿图
+		GO_KEGG        # 各种选择方法受选择基因富集结果
+cluster_logs/  # qsub投递运行的日志输出
+
+```
+
+
+
+
+
+#### 参考测试路径
+
+/work1/Users/yangsixue/pipline/group/sleep/snakemake3/run_test.sh
+
+
+
+
+
+
+
+### 流程说明
+
+本流程基于snakemake串写，具有断点续跑的功能，若对某一步骤结果不满意或需要调整，可以将那一部分目录删除或修改后，重新运行python主脚本。

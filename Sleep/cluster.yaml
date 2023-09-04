@@ -1,0 +1,145 @@
+localrules: all
+
+__default__:
+    queue: 'all.q,big'
+    workdir: './'
+    mem: '1G'
+    cores: 1
+
+prepare_pop:
+    threads: 1
+    memory: '1G'
+    output: 'cluster_logs/{rule}/{rule}.o'
+    error: 'cluster_logs/{rule}/{rule}.e'
+
+fst_count:
+    threads: 1
+    memory: '10G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+fst_top:
+    threads: 1
+    memory: '1G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+fst_enrich:
+    threads: 1
+    memory: '2G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+pi_count:
+    threads: 1
+    memory: '10G'
+    output: 'cluster_logs/{rule}/{wildcards.pop_all}.o'
+    error: 'cluster_logs/{rule}/{wildcards.pop_all}.e'
+
+pi_sleep_count:
+    threads: 1
+    memory: '1G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+pi_top:
+    threads: 1
+    memory: '1G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+pi_enrich:
+    threads: 1
+    memory: '2G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+xpclr_prepare_00:
+    threads: 1
+    memory: '30G'
+    output: 'cluster_logs/{rule}/{rule}.o'
+    error: 'cluster_logs/{rule}/{rule}.e'
+
+xpclr_prepare_01:
+    threads: 1
+    memory: '10G'
+    output: 'cluster_logs/{rule}/{wildcards.schr}.o'
+    error: 'cluster_logs/{rule}/{wildcards.schr}.e'
+
+xpclr_count_01:
+    threads: 1
+    memory: '50G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.{wildcards.schr}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.{wildcards.schr}.e'
+
+xpclr_count_02:
+    threads: 1
+    memory: '0.1G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+merge_xpclr_02:
+    threads: 1
+    memory: '1G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+xpclr_top:
+    threads: 1
+    memory: '1G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+xpclr_enrich:
+    threads: 1
+    memory: '2G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+mk_db_prepare:
+    threads: 1
+    memory: '2G'
+    output: 'cluster_logs/{rule}/{rule}.o'
+    error: 'cluster_logs/{rule}/{rule}.e'
+
+mk_kegg_library:
+    threads: 8
+    memory: '40G'
+    output: 'cluster_logs/{rule}/{rule}.o'
+    error: 'cluster_logs/{rule}/{rule}.e'
+
+mk_go_library:
+    threads: 8
+    memory: '20G'
+    output: 'cluster_logs/{rule}/{rule}.o'
+    error: 'cluster_logs/{rule}/{rule}.e'
+
+merge_all_result:
+    threads: 1
+    memory: '2G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+merge_top_result:
+    threads: 1
+    memory: '2G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+merge_gene_result:
+    threads: 1
+    memory: '2G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+manhattan_plot:
+    threads: 1
+    memory: '2G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'
+
+enrich_lns:
+    threads: 1
+    memory: '2G'
+    output: 'cluster_logs/{rule}/{wildcards.g}.o'
+    error: 'cluster_logs/{rule}/{wildcards.g}.e'

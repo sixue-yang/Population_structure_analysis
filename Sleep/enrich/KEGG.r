@@ -1,0 +1,122 @@
+#!/usr/bin/env Rscript
+#@author: huangsonglin
+#Email:huangsonglin@novogene.com
+#jiangkai  add --abbr 
+#jiangkai add up down gene at each enrich pathway 2019.01.23
+suppressMessages({
+library(clusterProfiler)
+library(argparser)})
+
+argv <- arg_parser('')
+argv <- add_argument(argv,"--kegg", help="the kegg pathway annotation file")
+argv <- add_argument(argv,"--diffgene", help="the differential gene file")
+argv <- add_argument(argv,"--diffresult", help="the differential analysis result")
+argv <- add_argument(argv,"--enrich", help="the enrich method")
+argv <- add_argument(argv,"--prefix", help="the prefix of outfile")
+argv <- add_argument(argv,"--abbr", help="the abbr")
+argv <- parse_args(argv)
+
+kegg <- argv$kegg
+diffgene <- argv$diffgene
+diffresult <- argv$diffresult
+enrich <- argv$enrich
+prefix <- argv$prefix
+abbr <- argv$abbr
+compare_list <-unlist(strsplit(prefix,split='/'))
+compare<-compare_list[length(compare_list)]
+
+kegg_df <- read.delim(kegg,header=TRUE,sep='\t',quote='')
+kegg_df <- na.omit(kegg_df)
+kegg_uq <- unique(kegg_df[,1:2])
+keggid_vt <- as.character(unique(kegg_df[,1:2])[,2])
+keggid_abbr_vt <- c()
+for ( i in keggid_vt) { keggid_abbr_vt <- c(keggid_abbr_vt,paste(abbr,":",i,sep=""))}
+names(keggid_vt) <- as.character(unique(kegg_df[,1:2])[,1])
+names(keggid_abbr_vt) <- as.character(unique(kegg_df[,1:2])[,1])
+term2gene <- kegg_df[,c('pathway_id','gene_id')]
+term2name <- kegg_df[,c('pathway_id','pathway_name')]
+
+if (enrich=='normal') {
+    diffgene_df <- read.delim(diffgene,header=T,sep='\t',quote='')
+    diffgene_vt <- as.character(diffgene_df$Gene)
+    genename_vt <- as.character(diffgene_df$Function)
+    names(genename_vt) <- diffgene_vt
+
+    if (!is.na(diffresult)) {
+        diffresult_df <- read.delim(diffresult,header=T,sep='\t',quote='')
+        backgene_vt <- as.character(diffresult_df$Gene)
+        #backgene_foldchage <- as.numeric(diffresult_df$log2FoldChange)
+        #names(backgene_foldchage) <- backgene_vt
+        KEGGenrich <- enricher(gene=diffgene_vt,universe=backgene_vt,TERM2GENE=term2gene,TERM2NAME=term2name,pAdjustMethod='BH',pvalueCutoff=1,qvalueCutoff=1)
+    } else {
+        KEGGenrich <- enricher(gene=diffgene_vt,TERM2GENE=term2gene,TERM2NAME=term2name,pAdjustMethod='BH',pvalueCutoff=1,qvalueCutoff=1)
+    }
+    if(typeof(KEGGenrich)=='NULL'){
+        KEGGenrich<- data.frame(KEGGID='',Description='',GeneRatio='',BgRatio='',pvalue='',padj='',geneID='',geneName='',keggID='',Count='')
+        Significant<-KEGGenrich
+    } else {
+        KEGGenrich <- as.data.frame(KEGGenrich)
+        names(KEGGenrich)[6] <- 'padj'
+        KEGGenrich <- subset(KEGGenrich,select=-qvalue)
+        gene_list <- strsplit(KEGGenrich$geneID,split='/')
+        geneName <- unlist(lapply(gene_list,FUN=function(x){paste(genename_vt[x],collapse='/')}))
+        #keggID <- unlist(lapply(gene_list,FUN=function(x){paste(keggid_vt[x],collapse='/')}))
+        keggID <- unlist(lapply(gene_list,FUN=function(x){paste(keggid_abbr_vt[x],collapse='/')}))
+        #KEGGenrich_no_abbr <- data.frame(KEGGenrich[,1:7],geneName,keggID,KEGGenrich[,8,drop=F])
+        KEGGenrich <- data.frame(KEGGenrich[,1:7],geneName,keggID,KEGGenrich[,8,drop=F])
+        names(KEGGenrich)[1] <- 'KEGGID'
+        #Significant_no_abbr <- subset(KEGGenrich_no_abbr,padj<0.05)
+        Significant <- subset(KEGGenrich,padj<0.05)
+    }
+} else if (enrich=='GSEA') {
+    diffresult_df <- read.delim(diffresult,header=TRUE,sep='\t',quote='')
+    genename_vt <- as.character(diffresult_df$Gene)
+    names(genename_vt) <- as.character(diffresult_df$Function)
+    foldchange <- diffresult_df$log2FoldChange
+    names(foldchange) <- as.character(diffresult_df$Gene)
+    foldchange <- sort(foldchange,decreasing=TRUE)
+    KEGGenrich <- GSEA(geneList=foldchange,TERM2GENE=term2gene,TERM2NAME=term2name,pvalueCutoff=1,pAdjustMethod="BH")
+    KEGGenrich <- as.data.frame(KEGGenrich)
+    names(KEGGenrich)[7] <- 'padj'
+    KEGGenrich <- subset(KEGGenrich,select=-qvalues)
+    gene_list <- strsplit(KEGGenrich$core_enrichment,split='/')
+    geneName <- unlist(lapply(gene_list,FUN=function(x){paste(genename_vt[x],collapse='/')}))
+    KEGGenrich <- data.frame(KEGGenrich,geneName)
+    names(KEGGenrich)[1] <- 'KEGGID'
+    Significant <- subset(KEGGenrich,padj<0.05)
+}
+
+write.table(KEGGenrich,file=paste(prefix,'_KEGGenrich.xls',sep=''),sep='\t',quote=F,row.names=F)
+write.table(Significant,file=paste(prefix,'_KEGGenrich_significant.xls',sep=''),sep='\t',quote=F,row.names=F)
+#write.table(KEGGenrich_abbr,file=paste(prefix,'_KEGGenrich_abbr.xls',sep=''),sep='\t',quote=F,row.names=F)
+#write.table(Significant_abbr,file=paste(prefix,'_KEGGenrich_significant_abbr.xls',sep=''),sep='\t',quote=F,row.names=F)
+
+#KEGGenrich.xls add up down gene
+if (grepl('_deg_all.xls',diffgene)){
+    split=unlist(strsplit(diffgene,split="_"))
+    combine=paste(split[1:(length(split)-2)],collapse="_")
+    if(length(unlist(strsplit(compare,split="vs")))==2){
+    diffgene_up <- as.character(read.delim(paste(combine,'_deg_up.xls',sep=""),header=T,sep="\t",quote='')$Gene)
+    diffgene_down <- as.character(read.delim(paste(combine,'_deg_down.xls',sep=""),header=T,sep="\t",quote='')$Gene)
+    KEGGenrich=read.delim(paste(prefix,'_KEGGenrich.xls',sep=''),header=T,quote='')
+    geneID <- strsplit(as.character(KEGGenrich$geneID),split="/")
+    inter_geneup_id_num=unlist(lapply(geneID,function(x){length(intersect(x,diffgene_up))}))
+    inter_geneup_id=lapply(geneID,function(x){intersect(x,diffgene_up)})
+    inter_geneup_id_combine <- unlist(lapply(inter_geneup_id,function(x){paste(x,collapse='/')}))
+    inter_genedown_id_num=unlist(lapply(geneID,function(x){length(intersect(x,diffgene_down))}))
+    inter_genedown_id=lapply(geneID,function(x){intersect(x,diffgene_down)})
+    inter_genedown_id_combine <- unlist(lapply(inter_genedown_id,function(x){paste(x,collapse='/')}))
+    out=data.frame(KEGGenrich,Up=inter_geneup_id_num,Up_Gene_id=inter_geneup_id_combine,Down=inter_genedown_id_num,Down_Gene_id=inter_genedown_id_combine)
+    write.table(out,file=paste(prefix,'_KEGGenrich.xls',sep=''),sep='\t',quote=F,row.names=F)
+#KEGGenrich_significant.xls add up down gene
+    KEGGenrich=read.delim(paste(prefix,'_KEGGenrich_significant.xls',sep=''),header=T,quote='')
+    geneID <- strsplit(as.character(KEGGenrich$geneID),split="/")
+    inter_geneup_id_num=unlist(lapply(geneID,function(x){length(intersect(x,diffgene_up))}))
+    inter_geneup_id=lapply(geneID,function(x){intersect(x,diffgene_up)})
+    inter_geneup_id_combine <- unlist(lapply(inter_geneup_id,function(x){paste(x,collapse='/')}))
+    inter_genedown_id_num=unlist(lapply(geneID,function(x){length(intersect(x,diffgene_down))}))
+    inter_genedown_id=lapply(geneID,function(x){intersect(x,diffgene_down)})
+    inter_genedown_id_combine <- unlist(lapply(inter_genedown_id,function(x){paste(x,collapse='/')}))
+    out=data.frame(KEGGenrich,Up=inter_geneup_id_num,Up_Gene_id=inter_geneup_id_combine,Down=inter_genedown_id_num,Down_Gene_id=inter_genedown_id_combine)
+    write.table(out,file=paste(prefix,'_KEGGenrich_significant.xls',sep=''),sep='\t',quote=F,row.names=F)
+}}

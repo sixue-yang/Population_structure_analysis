@@ -1,0 +1,578 @@
+import pandas as pd
+import itertools
+from collections import defaultdict
+import os
+import sys
+import yaml
+
+# 输入文件
+pop_file = config['pop_file']
+vcf_file = config['vcf_file']
+chr_list = config['chr_list']
+bed_file = config['bed_file']
+gene_name_file = config['gene_name_file']
+fast_file = config['fast_file']
+spe = config['spe']
+topCut = config['topCut'] # 取前5%
+SNPCut = config['SNPCut']    # SNP的阈值
+win = config['win']
+step = config['step']
+
+# 软件环境
+scrip_dir = config['script_dir']
+config_file_path = os.path.join(scrip_dir, 'env.yaml')
+config_file = open(config_file_path, 'r')
+env_contig = yaml.safe_load(config_file)
+python = env_contig['python']
+vcftools = env_contig['vcftools']
+Rscript = env_contig['Rscript']
+xpclr = env_contig['xpclr']
+kobas_python = env_contig['kobas_python']
+
+
+# 脚本路径
+
+prepare_pop = scrip_dir + os.sep + 'prepare_pop.py'
+Get_top = scrip_dir + os.sep + 'Get_top.py'
+Get_gene_function = scrip_dir + os.sep + 'Get_gene_function.py'
+KEGG = scrip_dir + os.sep + 'enrich/KEGG.r'
+GO = scrip_dir + os.sep + 'enrich/GO.r'
+bar_plot = scrip_dir + os.sep + 'enrich/bar_plot.r'
+dot_plot = scrip_dir + os.sep + 'enrich/dot_plot.r'
+count_sleep_pi = scrip_dir + os.sep + 'pi/01_count_sleep_pi.py'
+trun_vcf = scrip_dir + os.sep + 'xpclr/01_trun_vcf.py'
+merge_xpclr = scrip_dir + os.sep + 'xpclr/02_merge_xpclr.py'
+Merge_all_result = scrip_dir + os.sep + 'Merge_all_result.py'
+Merge_top_result = scrip_dir + os.sep + 'Merge_top_result.py'
+Gene_function_sort = scrip_dir + os.sep + 'Gene_function_sort.py'
+manhattan = scrip_dir + os.sep + 'manhattan.py'
+Get_gene_seq = scrip_dir + os.sep + 'enrich/01.Get_gene_seq.py'
+## kegg
+get_annotate_kegg = env_contig['get_annotate_kegg']
+get_kegg_pathway = env_contig['get_kegg_pathway']
+kobas_annotate = env_contig['kobas_annotate']
+## GO
+interproscan = env_contig['interproscan']
+get_interpro_go = env_contig['get_interpro_go']
+get_go_all = env_contig['get_go_all']
+
+
+
+################## 功能函数 ##################
+
+
+# 获取群体列表
+def get_pop_list():
+    pop_list_df = pd.read_csv(pop_file,sep='\t',header=None)
+    return list(set(pop_list_df[1].tolist()))
+
+# 解析染色体列表，获取染色体编号
+def read_chrs():
+    chrs = []
+    with open(chr_list) as chr_obj:
+        for line in chr_obj:
+            chrs.append(line.strip())
+    return chrs
+
+# 传递群列表表头制备
+def get_pop1(wildcards):
+    pop1 = wildcards.g.split('_')[0]
+    return f'01.Prepare/{pop1}.list'
+        
+def get_pop2(wildcards):
+    pop2 = wildcards.g.split('_')[1]
+    return f'01.Prepare/{pop2}.list'  
+
+
+# 传递pi群体文件
+def get_pop1_pi(wildcards):
+    pop1 = wildcards.g.split('_')[0]
+    return f'01.Prepare/Pi/{pop1}.windowed.pi'
+
+def get_pop2_pi(wildcards):
+    pop2 = wildcards.g.split('_')[1]
+    return f'01.Prepare/Pi/{pop2}.windowed.pi'
+
+
+# xpclr 文件参数传递
+
+
+# 排序 --> 固定后续组合顺序
+pop_list = sorted(get_pop_list())
+# 两两分群组合
+com_list = list(itertools.combinations(pop_list, 2))
+groupdir = ['_'.join(list(i)) for i in com_list]
+# 染色体列表 --> xpclr需要分染色体进行分析
+chrs = read_chrs()
+
+
+
+# 统筹标记结果文件
+rule all:
+    input:
+        expand('01.Prepare/{pop_all}.list',pop_all=pop_list),
+        expand('01.Prepare/Pi/{pop_all}.windowed.pi',pop_all=pop_list),
+        '01.Prepare/XPCLR/XPCLR.vcf.gz',
+        expand('05.Result/{g}/Arrange/{g}.total.value.xls',g=groupdir),
+        expand('05.Result/{g}/Arrange/{g}.top.value.xls',g=groupdir),
+        expand('05.Result/{g}/Arrange/{g}.top.win_sleep.xls',g=groupdir),
+        expand('05.Result/{g}/Arrange/{g}.sleep.gene.stat.xls',g=groupdir),
+        expand('05.Result/{g}/GO_KEGG',g=groupdir),
+        expand('05.Result/{g}/Manhattan/plot.done',g=groupdir)
+        
+        
+
+
+# 准备分群文件、固定组合队列
+rule prepare_pop:
+    input:
+        inputfile = pop_file
+    output:
+        expand('01.Prepare/{pop_all}.list',pop_all=pop_list)
+    params:
+        outdir = '01.Prepare'
+    shell:
+        """
+        {python}  {prepare_pop} -p {input.inputfile} -o {params.outdir}
+        """
+
+
+############### FST分析模块 ###############
+# fst 方法计算
+rule fst_count:
+    input:
+        vcf = vcf_file,
+        pop1_file = get_pop1,
+        pop2_file = get_pop2
+    output:
+        '02.Analysis/{g}/{g}.windowed.weir.fst'    
+    params:
+        win = win,
+        step = step,
+        prefix = '02.Analysis/{g}/{g}'        
+    shell:
+        """
+        {vcftools} --gzvcf {input.vcf} --weir-fst-pop {input.pop1_file} --weir-fst-pop {input.pop2_file} --fst-window-size {params.win} --fst-window-step {params.step} --out {params.prefix}
+        """
+# 筛选top
+rule fst_top:
+    input:
+        count_file = '02.Analysis/{g}/{g}.windowed.weir.fst',
+        bed_file = bed_file,
+        gene_file = gene_name_file
+    output:
+        out_top = '03.Top/{g}/{g}.top.fst',
+        out_gene = '03.Top/{g}/{g}.gene.fst'
+    params:
+        t_c = topCut,
+        s_c = SNPCut
+    shell:
+        """
+        {python} {Get_top} -in {input.count_file} -m fst -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {output.out_top};
+        {python} {Get_gene_function} -t {output.out_top} -g {input.gene_file} -o {output.out_gene}
+        """
+
+
+# 基因 富集分析
+rule fst_enrich:
+    input:
+        top_gene = '03.Top/{g}/{g}.gene.fst',
+        go_lib = '01.Prepare/Enrich/ref.go.xls',
+        kegg_lib = '01.Prepare/Enrich/ref.kegg.xls'
+    output:
+        tag_file = temp('04.Enrich/{g}/{g}.enrich.fst.done')
+    params:
+        out_prefix = '04.Enrich/{g}/FST/{g}.fst',
+        spe = spe
+    run:
+        os.makedirs(os.path.dirname(params.out_prefix),exist_ok=True)
+        shell("""
+        {Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {input.top_gene} --prefix {params.out_prefix} --abbr {params.spe} --enrich normal;
+        {Rscript} {bar_plot} --stat {params.out_prefix}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {params.out_prefix}.KEGG.bar;
+        {Rscript} {dot_plot} --stat {params.out_prefix}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {params.out_prefix}.KEGG.dot;
+        {Rscript} {GO} --go {input.go_lib} --diffgene {input.top_gene} --enrich normal --prefix {params.out_prefix};
+        {Rscript} {bar_plot} --stat {params.out_prefix}\_GOenrich.xls --type GO --cutoff padj --prefix {params.out_prefix}.GObar;
+        {Rscript} {dot_plot} --stat {params.out_prefix}\_GOenrich.xls --type GO --cutoff padj --prefix {params.out_prefix}.GOdot;
+        touch {output.tag_file}
+        """)
+
+
+
+############### PI分析模块 ###############
+# pi 方法计算
+rule pi_count:
+    input:
+        vcf = vcf_file,
+        poplist = '01.Prepare/{pop_all}.list'
+    output:
+        pop_vcf = '01.Prepare/Pi/{pop_all}.vcf.gz',
+        pi_count = '01.Prepare/Pi/{pop_all}.windowed.pi'
+    params:
+        win = win,
+        step = step,
+        prefix = '01.Prepare/Pi/{pop_all}'
+    shell:
+        """
+        {vcftools} --gzvcf {input.vcf} --keep {input.poplist} --recode --recode-INFO-all --non-ref-ac 1 -c | gzip -c > {output.pop_vcf} ;
+        {vcftools} --gzvcf {output.pop_vcf} --window-pi {params.win} --window-pi-step {params.step} --out {params.prefix}
+        """
+
+# 不同群间受选择计算
+rule pi_sleep_count:
+    input:
+        tag_file = expand('01.Prepare/Pi/{pop_all}.windowed.pi',pop_all=pop_list),
+        p_pi1 = get_pop1_pi,
+        p_pi2 = get_pop2_pi
+    output:
+        '02.Analysis/{g}/{g}.pi.done'
+    run:
+        sleep1 = '02.Analysis/{com}/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        sleep2 = '02.Analysis/{com}/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        shell("{python} {count_sleep_pi} -p1 {input.p_pi1} -p2 {input.p_pi2} -o1 {sleep1} -o2 {sleep2}")
+        shell("touch {output}")
+
+
+rule pi_top:
+    input:
+        flag_file = '02.Analysis/{g}/{g}.pi.done',
+        bed_file = bed_file,
+        gene_file = gene_name_file
+    output:
+        '03.Top/{g}/{g}.pi.done'
+    params:
+        t_c = topCut,
+        s_c = SNPCut
+    run:
+        infile1 = '02.Analysis/{com}/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        infile2 = '02.Analysis/{com}/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        outfile1 = '03.Top/{com}/{com}_{prefix}_select.top.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        outfile2 = '03.Top/{com}/{com}_{prefix}_select.top.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        out_gene_file1 = '03.Top/{com}/{com}_{prefix}_select.gene.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        out_gene_file2 = '03.Top/{com}/{com}_{prefix}_select.gene.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        shell("{python} {Get_top}  -in {infile1} -m pi -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {outfile1}")
+        shell("{python} {Get_top}  -in {infile2} -m pi -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {outfile2}")
+        shell("{python} {Get_gene_function} -t {outfile1} -g {input.gene_file} -o {out_gene_file1}")
+        shell("{python} {Get_gene_function} -t {outfile2} -g {input.gene_file} -o {out_gene_file2}")
+        shell("touch {output}")
+
+
+
+# 基因 富集分析
+rule pi_enrich:
+    input:
+        top_tag = '03.Top/{g}/{g}.pi.done',
+        go_lib = '01.Prepare/Enrich/ref.go.xls',
+        kegg_lib = '01.Prepare/Enrich/ref.kegg.xls'
+    output:
+        tag_file = temp('04.Enrich/{g}/{g}.pi.done')
+    params:
+        spe = spe
+    run:
+        gene_file1 = '03.Top/{com}/{com}_{prefix}_select.gene.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        gene_file2 = '03.Top/{com}/{com}_{prefix}_select.gene.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        prefix1 = '04.Enrich/{com}/Pi/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        prefix2 = '04.Enrich/{com}/Pi/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        os.makedirs(os.path.dirname(prefix2),exist_ok=True)
+        shell(
+        """
+        {Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {gene_file1} --prefix {prefix1} --abbr {params.spe} --enrich normal;
+        {Rscript} {bar_plot} --stat {prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {prefix1}.KEGG.bar;
+        {Rscript} {dot_plot} --stat {prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {prefix1}.KEGG.dot;
+        {Rscript} {GO} --go {input.go_lib} --diffgene {gene_file1} --enrich normal --prefix {prefix1};
+        {Rscript} {bar_plot} --stat {prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix1}.GObar;
+        {Rscript} {dot_plot} --stat {prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix1}.GOdot;
+        """)
+        shell(
+        """
+        {Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {gene_file2} --prefix {prefix2} --abbr {params.spe} --enrich normal;
+        {Rscript} {bar_plot} --stat {prefix2}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {prefix2}.KEGG.bar;
+        {Rscript} {dot_plot} --stat {prefix2}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {prefix2}.KEGG.dot;
+        {Rscript} {GO} --go {input.go_lib} --diffgene {gene_file2} --enrich normal --prefix {prefix2};
+        {Rscript} {bar_plot} --stat {prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix2}.GObar;
+        {Rscript} {dot_plot} --stat {prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix2}.GOdot;
+        """)
+        shell("touch {output}")
+
+
+
+############### XPCLR分析模块 ###############
+# 转换vcf
+rule xpclr_prepare_00:
+    input:
+        vcf = vcf_file
+    output:
+        '01.Prepare/XPCLR/XPCLR.vcf.gz'
+    resources:
+        cpus=1,
+        mem="4G"
+    shell:
+        """
+        {python} {trun_vcf} -v {input.vcf} -o {output}
+        """
+
+# 拆分染色体
+rule xpclr_prepare_01:
+    input:
+        '01.Prepare/XPCLR/XPCLR.vcf.gz'
+    output:
+        '01.Prepare/XPCLR/{schr}.vcf.gz'
+    shell:
+        """
+        {vcftools} --gzvcf {input} --chr {wildcards.schr} --recode --recode-INFO-all -c | gzip -c  > {output}
+        """
+
+# 分析不同组合下各个染色体 xpclr分数
+rule xpclr_count_01:
+    input:
+        vcf = '01.Prepare/XPCLR/{schr}.vcf.gz',
+        pop1_file = get_pop1,
+        pop2_file = get_pop2
+    output:
+        '01.Prepare/XPCLR/{g}/{schr}.01.done'
+    params:
+        win = win,
+        step = step
+    resources:
+        cpus=1,
+        mem=3
+    run:
+        outfile1 = '01.Prepare/XPCLR/{com}/{com}_{select}_{schr}_select.xpclr'.format(com=wildcards.g,schr=wildcards.schr, select=wildcards.g.split('_')[0])
+        outfile2 = '01.Prepare/XPCLR/{com}/{com}_{select}_{schr}_select.xpclr'.format(com=wildcards.g,schr=wildcards.schr, select=wildcards.g.split('_')[1])
+        shell('{xpclr} --out {outfile1} -Sa {input.pop1_file} -Sb {input.pop2_file} -I {input.vcf} -C {wildcards.schr} --ld 0.95 --phased --maxsnps 600 --size {params.win} --step {params.step}')
+        shell('{xpclr} --out {outfile2} -Sa {input.pop2_file} -Sb {input.pop1_file} -I {input.vcf} -C {wildcards.schr} --ld 0.95 --phased --maxsnps 600 --size {params.win} --step {params.step}')
+        
+        shell('touch {output}')
+
+
+
+
+# 生成特定标志位 确定每一个组合各个染色体全部计算完成
+rule xpclr_count_02:
+    input:
+        expand('01.Prepare/XPCLR/{g}/{schr}.01.done',g=groupdir,schr=chrs)
+    output:
+        '01.Prepare/XPCLR/{g}/{g}.done'
+    shell:
+        """
+        touch {output}
+        """
+
+
+
+# 合并各个染色体计算得到的分值
+rule merge_xpclr_02:
+    input:
+        '01.Prepare/XPCLR/{g}/{g}.done'
+    output:
+        '02.Analysis/{g}/{g}.xpclr.done'
+    params:
+        '02.Analysis/{g}/{g}'
+    shell:
+        """
+        {python} {merge_xpclr} -i {input} -o {params} &&
+        touch {output}
+        """
+
+# 筛选top
+rule xpclr_top:
+    input:
+        flag_file = '02.Analysis/{g}/{g}.xpclr.done',
+        bed_file = bed_file,
+        gene_file = gene_name_file
+    output:
+        '03.Top/{g}/{g}.xpclr.done'
+    params:
+        t_c = topCut,
+        s_c = SNPCut
+    run:
+        infile1 = '02.Analysis/{com}/{com}_{prefix}_select.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        infile2 = '02.Analysis/{com}/{com}_{prefix}_select.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        outfile1 = '03.Top/{com}/{com}_{prefix}_select.top.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        outfile2 = '03.Top/{com}/{com}_{prefix}_select.top.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        out_gene_file1 = '03.Top/{com}/{com}_{prefix}_select.gene.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        out_gene_file2 = '03.Top/{com}/{com}_{prefix}_select.gene.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        shell("{python} {Get_top}  -in {infile1} -m xpclr -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {outfile1}")
+        shell("{python} {Get_top}  -in {infile2} -m xpclr -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {outfile2}")
+        shell("{python} {Get_gene_function} -t {outfile1} -g {input.gene_file} -o {out_gene_file1}")
+        shell("{python} {Get_gene_function} -t {outfile2} -g {input.gene_file} -o {out_gene_file2}")
+        shell("touch {output}")
+
+
+# 基因 富集分析
+rule xpclr_enrich:
+    input:
+        top_tag = '03.Top/{g}/{g}.xpclr.done',
+        go_lib = '01.Prepare/Enrich/ref.go.xls',
+        kegg_lib = '01.Prepare/Enrich/ref.kegg.xls'
+    output:
+        tag_file = temp('04.Enrich/{g}/{g}.xpclr.done')
+    params:
+        spe = spe
+    run:
+        gene_file1 = '03.Top/{com}/{com}_{prefix}_select.gene.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        gene_file2 = '03.Top/{com}/{com}_{prefix}_select.gene.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        prefix1 = '04.Enrich/{com}/XPCLR/{com}_{prefix}_select.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        prefix2 = '04.Enrich/{com}/XPCLR/{com}_{prefix}_select.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        os.makedirs(os.path.dirname(prefix2),exist_ok=True)
+        shell(
+        """
+        {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/KEGG.r --kegg {input.kegg_lib} --diffgene {gene_file1} --prefix {prefix1} --abbr {params.spe} --enrich normal;
+        {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/bar_plot.r --stat {prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {prefix1}.KEGG.bar;
+        {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/dot_plot.r --stat {prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {prefix1}.KEGG.dot;
+        {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/GO.r --go {input.go_lib} --diffgene {gene_file1} --enrich normal --prefix {prefix1};
+        {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/bar_plot.r --stat {prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix1}.GObar;
+        {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/dot_plot.r --stat {prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix1}.GOdot;
+        """)
+        shell(
+        """
+        {Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {gene_file2} --prefix {prefix2} --abbr {params.spe} --enrich normal;
+        {Rscript} {bar_plot} --stat {prefix2}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {prefix2}.KEGG.bar;
+        {Rscript} {dot_plot} --stat {prefix2}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {prefix2}.KEGG.dot;
+        {Rscript} {GO} --go {input.go_lib} --diffgene {gene_file2} --enrich normal --prefix {prefix2};
+        {Rscript} {bar_plot} --stat {prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix2}.GObar;
+        {Rscript} {dot_plot} --stat {prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix2}.GOdot;
+        """)
+        shell("touch {output}")
+
+
+############### 基因富集模块 ###############
+# 准备cds、pep文件
+rule mk_db_prepare:
+    input:
+        fasta_file = fast_file,
+        gene_file = bed_file
+    output:
+        cds_file = '01.Prepare/Enrich/ref.cds',
+        pep_file = '01.Prepare/Enrich/ref.pep'
+    shell:
+        """
+        {python} {Get_gene_seq} -f {input.fasta_file} -b {input.gene_file} -oc {output.cds_file} -op {output.pep_file}
+        """
+
+rule mk_kegg_library:
+    input:
+        cds_file = '01.Prepare/Enrich/ref.cds'
+    output:
+        kegg_lib = '01.Prepare/Enrich/ref.kegg.xls',
+        kobas_file = temp('01.Prepare/Enrich/ref.kegg.kobas.xls'),
+        kegg_bed_file = temp('01.Prepare/Enrich/ref.kegg.kobas.bed')
+    params:
+        spe = spe
+    resources:
+        mem_mb=4,
+        disk_mb=4
+    shell:
+        """
+        set +u;
+        export PATH=/work1/Users/wangtianyi/software/conda/miniconda3/bin:$PATH;
+        source activate /work1/Users/jerry_jiang/miniconda3/envs/kobas_3.0.3;
+        export PATH=/work1/Users/jerry_jiang/miniconda3/envs/r_3.6.0/bin:$PATH;
+        {kobas_python} {kobas_annotate} -i {input.cds_file} -t fasta:nuc -e 1e-5 -s {params.spe} -n 8 -o {output.kobas_file};
+        {get_annotate_kegg} --annotate {output.kobas_file} --outfile {output.kegg_bed_file};
+        {get_kegg_pathway} --species_kegg {params.spe} --annotate_kegg {output.kegg_bed_file} --outfile {output.kegg_lib}
+        """
+
+
+
+rule mk_go_library:
+    input:
+        pep_file = '01.Prepare/Enrich/ref.pep'
+    output:
+        interpro_go_file = '01.Prepare/Enrich/ref.pre.go.xls',
+        interpro_pre = '01.Prepare/Enrich/ref.pep.tsv',
+        go_lib = '01.Prepare/Enrich/ref.go.xls'
+    resources:
+        mem_mb=4,
+        disk_mb=4
+    params:
+        outdir = '01.Prepare/Enrich/'
+    shell:
+        """
+        export PATH=/work1/Users/wangtianyi/software/conda/miniconda3/bin:$PATH;
+        source activate /work1/Users/jerry_jiang/miniconda3/envs/prepare_data;
+        export PATH=/work1/Users/jerry_jiang/miniconda3/envs/r_3.6.0/bin:$PATH;
+        export PATH=/work1/Users/jerry_jiang/miniconda3/envs/jdk/jdk-11.0.9/bin:$PATH;
+        {interproscan} -t p -i {input.pep_file} -b {input.pep_file}  -iprlookup -goterms -pa -appl Pfam,SUPERFAMILY -dp -T {params.outdir};
+        {get_interpro_go} --interpro {output.interpro_pre} --outfile {output.interpro_go_file};
+        {get_go_all} --go {output.interpro_go_file} --outfile {output.go_lib}
+        """
+
+
+
+############### 结果整理模块 ###############
+# 整合所有方法分析结果
+rule merge_all_result:
+    input:
+        fst_file = '02.Analysis/{g}/{g}.windowed.weir.fst',
+        pi_tag = '02.Analysis/{g}/{g}.pi.done',
+        xpclr_tag = '02.Analysis/{g}/{g}.xpclr.done'
+    output:
+        '05.Result/{g}/Arrange/{g}.total.value.xls'
+    params:
+        SNPCut
+    run:
+        pi1 = '02.Analysis/{com}/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        pi2 = '02.Analysis/{com}/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        xpclr1 = '02.Analysis/{com}/{com}_{prefix}_select.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        xpclr2 = '02.Analysis/{com}/{com}_{prefix}_select.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        shell("{python} {Merge_all_result} -fst {input.fst_file} -pi1 {pi1} -pi2 {pi2} -xp1 {xpclr1} -xp2 {xpclr2} -t {params} -o {output}")
+
+
+# 整合top方法
+rule merge_top_result:
+    input:
+        fst_top = '03.Top/{g}/{g}.top.fst',
+        pi_top_tag = '03.Top/{g}/{g}.pi.done',
+        xpclr_top_tag = '03.Top/{g}/{g}.xpclr.done'
+    output:
+        top_value = '05.Result/{g}/Arrange/{g}.top.value.xls',
+        top_win_sleep = '05.Result/{g}/Arrange/{g}.top.win_sleep.xls'
+    run:
+        pi1 = '03.Top/{com}/{com}_{prefix}_select.top.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        pi2 = '03.Top/{com}/{com}_{prefix}_select.top.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        xpclr_top1 = '03.Top/{com}/{com}_{prefix}_select.top.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        xpclr_top2 = '03.Top/{com}/{com}_{prefix}_select.top.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        shell("{python} {Merge_top_result} -f {input.fst_top} -p1 {pi1} -p2 {pi2} -xp1 {xpclr_top1} -xp2 {xpclr_top2} -o1 {output.top_value} -o2 {output.top_win_sleep}")
+
+
+# 基因维度数据整合
+rule merge_gene_result:
+    input:
+        fst_gene = '03.Top/{g}/{g}.gene.fst',
+        pi_top_tag = '03.Top/{g}/{g}.pi.done',
+        xpclr_top_tag = '03.Top/{g}/{g}.xpclr.done'
+    output:
+        '05.Result/{g}/Arrange/{g}.sleep.gene.stat.xls'
+    run:
+        pi_gene_file1 = '03.Top/{com}/{com}_{prefix}_select.gene.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        pi_gene_file2 = '03.Top/{com}/{com}_{prefix}_select.gene.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        xpclr_gene_file1 = '03.Top/{com}/{com}_{prefix}_select.gene.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
+        xpclr_gene_file2 = '03.Top/{com}/{com}_{prefix}_select.gene.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        shell("{python} {Gene_function_sort} -f {input.fst_gene} -p1 {pi_gene_file1} -p2 {pi_gene_file2} -x1 {xpclr_gene_file1} -x2 {xpclr_gene_file2} -o {output}")
+
+
+# 曼哈顿图绘制
+rule manhattan_plot:
+    input:
+        '05.Result/{g}/Arrange/{g}.total.value.xls'
+    output:
+        temp('05.Result/{g}/Manhattan/plot.done')
+    run:
+        out_dir = '05.Result/{com}/Manhattan'.format(com=wildcards.g)
+        shell("{python} {manhattan} -i {input} -o {out_dir}")
+        shell("touch {output}")
+
+
+# 富集数据软链
+rule enrich_lns:
+    input:
+        fst_enrich_tag = '04.Enrich/{g}/{g}.enrich.fst.done',
+        pi_enrich_tag = '04.Enrich/{g}/{g}.pi.done',
+        xpclr_enrich_tag = '04.Enrich/{g}/{g}.xpclr.done'
+    output:
+        directory('05.Result/{g}/GO_KEGG')
+    run:
+        dirs = '04.Enrich/{com}'.format(com=wildcards.g)
+        abs_dir = os.path.abspath(dirs)
+        shell("ln -s {abs_dir} {output}")
+
