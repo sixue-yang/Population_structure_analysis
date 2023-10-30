@@ -49,12 +49,14 @@ def mk_win_for_gene(df:pd.DataFrame,chr_tag:str,star_tag:str,end_tag:str,bed_tre
         chrs = df.loc[indexs,chr_tag]
         star = df.loc[indexs,star_tag]
         end = df.loc[indexs, end_tag]
-        intervals = bed_tree[chrs].overlap(star,end)
-        if len(intervals) == 0:
+        if chrs not in bed_tree.keys():
             over_gene_list = ['NA']
         else:
-
-            over_gene_list = [interval.data for interval in intervals]
+            intervals = bed_tree[chrs].overlap(star,end)
+            if len(intervals) == 0:
+                over_gene_list = ['NA']
+            else:
+                over_gene_list = [interval.data for interval in intervals]
         gene_anno_lis.append(';'.join(over_gene_list))
         #func_anno_lis.append(';'.join([fun_dic.get(gene,'') for gene in over_gene_list]))
     anno_df = df.copy()

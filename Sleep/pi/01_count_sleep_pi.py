@@ -32,8 +32,8 @@ def main():
     out1 = args.out1
     out2 = args.out2
 
-    pop1_name = os.path.basename(pop1_file).split('.')[0]
-    pop2_name = os.path.basename(pop2_file).split('.')[0]
+    pop1_name = '.'.join(os.path.basename(pop1_file).split('.')[:-2])
+    pop2_name = '.'.join(os.path.basename(pop2_file).split('.')[:-2])
 
     p1_df = read_pi(pop1_file,pop1_name)
     p2_df = read_pi(pop2_file,pop2_name)
@@ -50,6 +50,8 @@ def main():
     out_p1_select = p1_select_df.loc[:,['CHROM', 'BIN_START', 'BIN_END','N_VARIANTS','PI']]
     out_p2_select = p2_select_df.loc[:, ['CHROM', 'BIN_START', 'BIN_END', 'N_VARIANTS', 'PI']]
     # 输出
+    out_p1_select = out_p1_select.drop_duplicates()
+    out_p2_select = out_p2_select.drop_duplicates()
     out_p1_select.to_csv(out1,sep='\t',index=False)
     out_p2_select.to_csv(out2, sep='\t', index=False)
 
