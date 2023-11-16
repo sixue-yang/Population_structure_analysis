@@ -76,7 +76,7 @@ if __name__ == '__main__':
         yaml.dump(input_configfile, config_file)
 
     snakemake_script = os.path.join(os.path.dirname(sys.argv[0]),'Sleep.snakemake')
-    sub_cmd = f'''{snakemake} -s {snakemake_script} --configfile input_config.yaml --cluster-config {cluster_contig_path} --cluster "qsub -V -cwd -l vf={{cluster.memory}},p={{cluster.threads}} -o {{cluster.output}} -e {{cluster.error}}" --jobs {job} --latency-wait {wait_time}
+    sub_cmd = f'''{snakemake} -s {snakemake_script} --configfile input_config.yaml --cluster-config {cluster_contig_path} --cluster "qsub -V -cwd -l vf={{cluster.memory}},p={{cluster.threads}} -o {{cluster.output}} -e {{cluster.error}}" --jobs {job} --latency-wait {wait_time} --restart-times 3
     '''
     print('命令',sub_cmd)
     sp.call(sub_cmd,shell=True)

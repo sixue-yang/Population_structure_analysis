@@ -234,9 +234,8 @@ if (type=='KEGG'|type=='DO'|type=='Reactome'|type=='DisGeNET') {
 p <- p + theme(panel.background=element_rect(fill="transparent"),axis.line=element_line())
 #p <- p + theme(axis.text.x=element_text(hjust=1,angle=45,size=6))
 
-pdf(file=paste(prefix,'.pdf',sep=''))
-p
-dev.off()
+ggsave(p,filename=paste(prefix,'.pdf',sep=''))
+
 
 svg(filename=paste(prefix,'.svg',sep=''))
 p

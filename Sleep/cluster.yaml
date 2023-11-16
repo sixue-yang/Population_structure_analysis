@@ -68,7 +68,7 @@ xpclr_prepare_01:
 
 xpclr_count_01:
     threads: 1
-    memory: '50G'
+    memory: '10G'
     output: 'cluster_logs/{rule}/{wildcards.g}.{wildcards.schr}.o'
     error: 'cluster_logs/{rule}/{wildcards.g}.{wildcards.schr}.e'
 

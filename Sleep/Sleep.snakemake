@@ -108,6 +108,7 @@ chrs = read_chrs()
 
 
 # 统筹标记结果文件
+
 rule all:
     input:
         expand('01.Prepare/{pop_all}.list',pop_all=pop_list),
@@ -119,9 +120,10 @@ rule all:
         expand('05.Result/{g}/Arrange/{g}.sleep.gene.stat.xls',g=groupdir),
         expand('05.Result/{g}/GO_KEGG',g=groupdir),
         expand('05.Result/{g}/Manhattan/plot.done',g=groupdir)
-        
-        
 
+
+
+        
 
 # 准备分群文件、固定组合队列
 rule prepare_pop:
@@ -129,12 +131,18 @@ rule prepare_pop:
         inputfile = pop_file
     output:
         expand('01.Prepare/{pop_all}.list',pop_all=pop_list)
+    log:
+        '00.Bin/Pop_prepare/00.pop_prepare.sh'
     params:
         outdir = '01.Prepare'
-    shell:
-        """
-        {python}  {prepare_pop} -p {input.inputfile} -o {params.outdir}
-        """
+    run:
+        inputfile = os.path.abspath(input.inputfile)
+        out_dir = os.path.abspath(params.outdir)
+
+        shell('echo "{python}  {prepare_pop} -p {inputfile} -o {out_dir}" >> {log}')
+        mycmd = '{python}  {prepare_pop} -p {inputfile} -o {out_dir}'
+        
+        shell(mycmd)
 
 
 ############### FST分析模块 ###############
@@ -145,15 +153,21 @@ rule fst_count:
         pop1_file = get_pop1,
         pop2_file = get_pop2
     output:
-        '02.Analysis/{g}/{g}.windowed.weir.fst'    
+        '02.Analysis/{g}/{g}.windowed.weir.fst'
     params:
         win = win,
         step = step,
         prefix = '02.Analysis/{g}/{g}'        
-    shell:
-        """
-        {vcftools} --gzvcf {input.vcf} --weir-fst-pop {input.pop1_file} --weir-fst-pop {input.pop2_file} --fst-window-size {params.win} --fst-window-step {params.step} --out {params.prefix}
-        """
+    run:
+        shell_file = '00.Bin/FST/01.fst_count.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+        pop1_file = os.path.abspath(input.pop1_file)
+        pop2_file = os.path.abspath(input.pop2_file)
+        out_prefix = os.path.abspath(params.prefix)
+        shell("""
+        {vcftools} --gzvcf {input.vcf} --weir-fst-pop {input.pop1_file} --weir-fst-pop {input.pop2_file} --fst-window-size {params.win} --fst-window-step {params.step} --out {params.prefix};
+        echo "{vcftools} --gzvcf {input.vcf} --weir-fst-pop {pop1_file} --weir-fst-pop {pop2_file} --fst-window-size {params.win} --fst-window-step {params.step} --out {out_prefix}" >> {shell_file}
+        """)
 # 筛选top
 rule fst_top:
     input:
@@ -166,11 +180,17 @@ rule fst_top:
     params:
         t_c = topCut,
         s_c = SNPCut
-    shell:
-        """
+    run:
+        shell_file = '00.Bin/FST/02.fst_top.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+        count_file = os.path.abspath(input.count_file)
+        out_top = os.path.abspath(output.out_top)
+        out_gene = os.path.abspath(output.out_gene)
+        shell("""
         {python} {Get_top} -in {input.count_file} -m fst -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {output.out_top};
-        {python} {Get_gene_function} -t {output.out_top} -g {input.gene_file} -o {output.out_gene}
-        """
+        {python} {Get_gene_function} -t {output.out_top} -g {input.gene_file} -o {output.out_gene};
+        echo "{python} {Get_top} -in {count_file} -m fst -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {out_top};{python} {Get_gene_function} -t {out_top} -g {input.gene_file} -o {out_gene}" >> {shell_file}
+        """)
 
 
 # 基因 富集分析
@@ -185,16 +205,19 @@ rule fst_enrich:
         out_prefix = '04.Enrich/{g}/FST/{g}.fst',
         spe = spe
     run:
+        shell_file = '00.Bin/FST/03.fst_enrich.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
         os.makedirs(os.path.dirname(params.out_prefix),exist_ok=True)
-        shell("""
-        {Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {input.top_gene} --prefix {params.out_prefix} --abbr {params.spe} --enrich normal;
-        {Rscript} {bar_plot} --stat {params.out_prefix}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {params.out_prefix}.KEGG.bar;
-        {Rscript} {dot_plot} --stat {params.out_prefix}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {params.out_prefix}.KEGG.dot;
-        {Rscript} {GO} --go {input.go_lib} --diffgene {input.top_gene} --enrich normal --prefix {params.out_prefix};
-        {Rscript} {bar_plot} --stat {params.out_prefix}\_GOenrich.xls --type GO --cutoff padj --prefix {params.out_prefix}.GObar;
-        {Rscript} {dot_plot} --stat {params.out_prefix}\_GOenrich.xls --type GO --cutoff padj --prefix {params.out_prefix}.GOdot;
-        touch {output.tag_file}
+        top_gene = os.path.abspath(input.top_gene)
+        go_lib = os.path.abspath(input.go_lib)
+        kegg_lib = os.path.abspath(input.kegg_lib)
+        out_prefix = os.path.abspath(params.out_prefix)
+
+
+        shell(""" echo "{Rscript} {KEGG} --kegg {kegg_lib} --diffgene {top_gene} --prefix {out_prefix} --abbr {params.spe} --enrich normal;{Rscript} {bar_plot} --stat {out_prefix}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {out_prefix}.KEGG.bar;{Rscript} {dot_plot} --stat {out_prefix}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {out_prefix}.KEGG.dot;{Rscript} {GO} --go {go_lib} --diffgene {top_gene} --enrich normal --prefix {out_prefix};{Rscript} {bar_plot} --stat {out_prefix}\_GOenrich.xls --type GO --cutoff padj --prefix {out_prefix}.GObar;{Rscript} {dot_plot} --stat {out_prefix}\_GOenrich.xls --type GO --cutoff padj --prefix {out_prefix}.GOdot;" >> {shell_file}""")
+        shell("""{Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {input.top_gene} --prefix {params.out_prefix} --abbr {params.spe} --enrich normal;{Rscript} {bar_plot} --stat {params.out_prefix}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {params.out_prefix}.KEGG.bar;{Rscript} {dot_plot} --stat {params.out_prefix}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {params.out_prefix}.KEGG.dot;{Rscript} {GO} --go {input.go_lib} --diffgene {input.top_gene} --enrich normal --prefix {params.out_prefix};{Rscript} {bar_plot} --stat {params.out_prefix}\_GOenrich.xls --type GO --cutoff padj --prefix {params.out_prefix}.GObar;{Rscript} {dot_plot} --stat {params.out_prefix}\_GOenrich.xls --type GO --cutoff padj --prefix {params.out_prefix}.GOdot;touch {output.tag_file}
         """)
+        
 
 
 
@@ -211,11 +234,23 @@ rule pi_count:
         win = win,
         step = step,
         prefix = '01.Prepare/Pi/{pop_all}'
-    shell:
-        """
+    run:
+        shell_file = '00.Bin/Pi/01.pi_count.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+        poplist = os.path.abspath(input.poplist)
+
+        pop_vcf = os.path.abspath(output.pop_vcf)
+        pi_count = os.path.abspath(output.pi_count)
+        prefix = os.path.abspath(params.prefix)
+
+        shell("""echo "{vcftools} --gzvcf {input.vcf} --keep {poplist} --recode --recode-INFO-all --non-ref-ac 1 -c | gzip -c > {pop_vcf};{vcftools} --gzvcf {pop_vcf} --window-pi {params.win} --window-pi-step {params.step} --out {prefix}" >> {shell_file}""")
+
+        shell("""
         {vcftools} --gzvcf {input.vcf} --keep {input.poplist} --recode --recode-INFO-all --non-ref-ac 1 -c | gzip -c > {output.pop_vcf} ;
         {vcftools} --gzvcf {output.pop_vcf} --window-pi {params.win} --window-pi-step {params.step} --out {params.prefix}
-        """
+        """)
+        
+
 
 # 不同群间受选择计算
 rule pi_sleep_count:
@@ -226,9 +261,18 @@ rule pi_sleep_count:
     output:
         '02.Analysis/{g}/{g}.pi.done'
     run:
+        shell_file = '00.Bin/Pi/02.pi_sleep_count.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+
         sleep1 = '02.Analysis/{com}/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         sleep2 = '02.Analysis/{com}/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+        p_pi1 = os.path.abspath(input.p_pi1)
+        p_pi2 = os.path.abspath(input.p_pi2)
+        log_sleep1 = os.path.abspath(sleep1)
+        log_sleep2 = os.path.abspath(sleep2)
+        shell('echo "{python} {count_sleep_pi} -p1 {p_pi1} -p2 {p_pi2} -o1 {log_sleep1} -o2 {log_sleep2}" >> {shell_file}')
         shell("{python} {count_sleep_pi} -p1 {input.p_pi1} -p2 {input.p_pi2} -o1 {sleep1} -o2 {sleep2}")
+        
         shell("touch {output}")
 
 
@@ -243,16 +287,31 @@ rule pi_top:
         t_c = topCut,
         s_c = SNPCut
     run:
+        shell_file = '00.Bin/Pi/03.pi_top.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+
         infile1 = '02.Analysis/{com}/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         infile2 = '02.Analysis/{com}/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
         outfile1 = '03.Top/{com}/{com}_{prefix}_select.top.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         outfile2 = '03.Top/{com}/{com}_{prefix}_select.top.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
         out_gene_file1 = '03.Top/{com}/{com}_{prefix}_select.gene.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         out_gene_file2 = '03.Top/{com}/{com}_{prefix}_select.gene.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+
+        log_infile1 = os.path.abspath(infile1)
+        log_infile2 = os.path.abspath(infile2)
+        log_outfile1 = os.path.abspath(outfile1)
+        log_outfile2 = os.path.abspath(outfile2)
+        log_out_gene_file1 = os.path.abspath(out_gene_file1)
+        log_out_gene_file2 = os.path.abspath(out_gene_file2)
+        shell('echo "{python} {Get_top}  -in {log_infile1} -m pi -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {log_outfile1}" >> {shell_file}')
+        shell('echo "{python} {Get_top}  -in {log_infile2} -m pi -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {log_outfile2}" >> {shell_file}')
+        shell('echo "{python} {Get_gene_function} -t {log_outfile1} -g {input.gene_file} -o {log_out_gene_file1}" >> {shell_file}')
+        shell('echo "{python} {Get_gene_function} -t {log_outfile2} -g {input.gene_file} -o {log_out_gene_file2}" >> {shell_file}')
         shell("{python} {Get_top}  -in {infile1} -m pi -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {outfile1}")
         shell("{python} {Get_top}  -in {infile2} -m pi -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {outfile2}")
         shell("{python} {Get_gene_function} -t {outfile1} -g {input.gene_file} -o {out_gene_file1}")
         shell("{python} {Get_gene_function} -t {outfile2} -g {input.gene_file} -o {out_gene_file2}")
+
         shell("touch {output}")
 
 
@@ -268,11 +327,22 @@ rule pi_enrich:
     params:
         spe = spe
     run:
+        shell_file = '00.Bin/Pi/04.pi_enrich.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+
         gene_file1 = '03.Top/{com}/{com}_{prefix}_select.gene.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         gene_file2 = '03.Top/{com}/{com}_{prefix}_select.gene.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
         prefix1 = '04.Enrich/{com}/Pi/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         prefix2 = '04.Enrich/{com}/Pi/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
         os.makedirs(os.path.dirname(prefix2),exist_ok=True)
+        
+        log_gene_file1 = os.path.abspath(gene_file1)
+        log_gene_file2 = os.path.abspath(gene_file2)
+        log_prefix1 = os.path.abspath(prefix1)
+        log_prefix2 = os.path.abspath(prefix2)
+
+        shell("""echo "{Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {log_gene_file1} --prefix {log_prefix1} --abbr {params.spe} --enrich normal;{Rscript} {bar_plot} --stat {log_prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix1}.KEGG.bar;{Rscript} {dot_plot} --stat {log_prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix1}.KEGG.dot;{Rscript} {GO} --go {input.go_lib} --diffgene {log_gene_file1} --enrich normal --prefix {log_prefix1};{Rscript} {bar_plot} --stat {log_prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix1}.GObar;{Rscript} {dot_plot} --stat {log_prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix1}.GOdot;" >> {shell_file}""")
+        shell("""echo "{Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {log_gene_file2} --prefix {log_prefix2} --abbr {params.spe} --enrich normal;{Rscript} {bar_plot} --stat {log_prefix2}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix2}.KEGG.bar;{Rscript} {dot_plot} --stat {log_prefix2}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix2}.KEGG.dot;{Rscript} {GO} --go {input.go_lib} --diffgene {log_gene_file2} --enrich normal --prefix {log_prefix2};{Rscript} {bar_plot} --stat {log_prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix2}.GObar;{Rscript} {dot_plot} --stat {log_prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix2}.GOdot;" >> {shell_file}""")
         shell(
         """
         {Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {gene_file1} --prefix {prefix1} --abbr {params.spe} --enrich normal;
@@ -291,6 +361,9 @@ rule pi_enrich:
         {Rscript} {bar_plot} --stat {prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix2}.GObar;
         {Rscript} {dot_plot} --stat {prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix2}.GOdot;
         """)
+
+
+        
         shell("touch {output}")
 
 
@@ -305,10 +378,16 @@ rule xpclr_prepare_00:
     resources:
         cpus=1,
         mem="4G"
-    shell:
-        """
+    run:
+        shell_file = '00.Bin/XPCLR/00.xpclr_prepare_00.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+        log_out = os.path.abspath(output[0])
+
+        shell("""echo "{python} {trun_vcf} -v {input.vcf} -o {log_out}" >> {shell_file} """)
+        shell("""
         {python} {trun_vcf} -v {input.vcf} -o {output}
-        """
+        """)
+        
 
 # 拆分染色体
 rule xpclr_prepare_01:
@@ -316,10 +395,19 @@ rule xpclr_prepare_01:
         '01.Prepare/XPCLR/XPCLR.vcf.gz'
     output:
         '01.Prepare/XPCLR/{schr}.vcf.gz'
-    shell:
+    run:
+        shell_file = '00.Bin/XPCLR/00.xpclr_prepare_01.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+
+        log_input = os.path.abspath(input[0])
+        log_output = os.path.abspath(output[0])
+        shell('echo "{vcftools} --gzvcf {log_input} --chr {wildcards.schr} --recode --recode-INFO-all -c | gzip -c  > {log_output}" >> {shell_file}')
+        shell(
         """
         {vcftools} --gzvcf {input} --chr {wildcards.schr} --recode --recode-INFO-all -c | gzip -c  > {output}
-        """
+        """)
+        
+
 
 # 分析不同组合下各个染色体 xpclr分数
 rule xpclr_count_01:
@@ -336,11 +424,24 @@ rule xpclr_count_01:
         cpus=1,
         mem=3
     run:
+        shell_file = '00.Bin/XPCLR/01.xpclr_count.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+
         outfile1 = '01.Prepare/XPCLR/{com}/{com}_{select}_{schr}_select.xpclr'.format(com=wildcards.g,schr=wildcards.schr, select=wildcards.g.split('_')[0])
         outfile2 = '01.Prepare/XPCLR/{com}/{com}_{select}_{schr}_select.xpclr'.format(com=wildcards.g,schr=wildcards.schr, select=wildcards.g.split('_')[1])
+        
+        log_input = os.path.abspath(input.vcf)
+        log_outfile1 = os.path.abspath(outfile1)
+        log_outfile2 = os.path.abspath(outfile2)
+        log_pop1_file = os.path.abspath(input.pop1_file)
+        log_pop2_file = os.path.abspath(input.pop2_file)
+        shell('echo "{xpclr} --out {log_outfile1} -Sa {log_pop1_file} -Sb {log_pop2_file} -I {log_input} -C {wildcards.schr} --ld 0.95 --phased --maxsnps 600 --size {params.win} --step {params.step}" >> {shell_file}')
+        shell('echo "{xpclr} --out {log_outfile2} -Sa {log_pop2_file} -Sb {log_pop1_file} -I {log_input} -C {wildcards.schr} --ld 0.95 --phased --maxsnps 600 --size {params.win} --step {params.step}" >> {shell_file}')
+        
         shell('{xpclr} --out {outfile1} -Sa {input.pop1_file} -Sb {input.pop2_file} -I {input.vcf} -C {wildcards.schr} --ld 0.95 --phased --maxsnps 600 --size {params.win} --step {params.step}')
         shell('{xpclr} --out {outfile2} -Sa {input.pop2_file} -Sb {input.pop1_file} -I {input.vcf} -C {wildcards.schr} --ld 0.95 --phased --maxsnps 600 --size {params.win} --step {params.step}')
         
+
         shell('touch {output}')
 
 
@@ -367,11 +468,16 @@ rule merge_xpclr_02:
         '02.Analysis/{g}/{g}.xpclr.done'
     params:
         '02.Analysis/{g}/{g}'
-    shell:
-        """
-        {python} {merge_xpclr} -i {input} -o {params} &&
-        touch {output}
-        """
+    run:
+        shell_file = '00.Bin/XPCLR/02.xpclr_merge.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+        log_input = os.path.abspath(input[0])
+        log_params = os.path.abspath(params[0])
+        shell('echo "{python} {merge_xpclr} -i {input} -o {log_params}" >> {shell_file}')
+
+        shell("""{python} {merge_xpclr} -i {input} -o {params}""")
+
+        shell('touch {output}')
 
 # 筛选top
 rule xpclr_top:
@@ -385,16 +491,33 @@ rule xpclr_top:
         t_c = topCut,
         s_c = SNPCut
     run:
+        shell_file = '00.Bin/XPCLR/03.xpclr_top.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+
         infile1 = '02.Analysis/{com}/{com}_{prefix}_select.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         infile2 = '02.Analysis/{com}/{com}_{prefix}_select.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
         outfile1 = '03.Top/{com}/{com}_{prefix}_select.top.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         outfile2 = '03.Top/{com}/{com}_{prefix}_select.top.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
         out_gene_file1 = '03.Top/{com}/{com}_{prefix}_select.gene.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         out_gene_file2 = '03.Top/{com}/{com}_{prefix}_select.gene.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+
+        log_infile1 = os.path.abspath(infile1)
+        log_infile2 = os.path.abspath(infile2)
+        log_outfile1 = os.path.abspath(outfile1)
+        log_outfile2 = os.path.abspath(outfile2)
+        log_out_gene_file1 = os.path.abspath(out_gene_file1)
+        log_out_gene_file2 = os.path.abspath(out_gene_file2)
+
+        shell('echo "{python} {Get_top}  -in {log_infile1} -m xpclr -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {log_outfile1}" >> {shell_file}')
+        shell('echo "{python} {Get_top}  -in {log_infile2} -m xpclr -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {log_outfile2}" >> {shell_file}')
+        shell('echo "{python} {Get_gene_function} -t {log_outfile1} -g {input.gene_file} -o {log_out_gene_file1}" >> {shell_file}')
+        shell('echo "{python} {Get_gene_function} -t {log_outfile2} -g {input.gene_file} -o {log_out_gene_file2}" >> {shell_file}')
+
         shell("{python} {Get_top}  -in {infile1} -m xpclr -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {outfile1}")
         shell("{python} {Get_top}  -in {infile2} -m xpclr -b {input.bed_file} -t {params.t_c} -s {params.s_c} -o {outfile2}")
         shell("{python} {Get_gene_function} -t {outfile1} -g {input.gene_file} -o {out_gene_file1}")
         shell("{python} {Get_gene_function} -t {outfile2} -g {input.gene_file} -o {out_gene_file2}")
+
         shell("touch {output}")
 
 
@@ -409,11 +532,22 @@ rule xpclr_enrich:
     params:
         spe = spe
     run:
+        shell_file = '00.Bin/XPCLR/04.xpclr_enrich.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+
         gene_file1 = '03.Top/{com}/{com}_{prefix}_select.gene.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         gene_file2 = '03.Top/{com}/{com}_{prefix}_select.gene.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
         prefix1 = '04.Enrich/{com}/XPCLR/{com}_{prefix}_select.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         prefix2 = '04.Enrich/{com}/XPCLR/{com}_{prefix}_select.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
         os.makedirs(os.path.dirname(prefix2),exist_ok=True)
+
+        log_gene_file1 = os.path.abspath(gene_file1)
+        log_gene_file2 = os.path.abspath(gene_file2)
+        log_prefix1 = os.path.abspath(prefix1)
+        log_prefix2 = os.path.abspath(prefix2)
+
+        shell("""echo "{Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/KEGG.r --kegg {input.kegg_lib} --diffgene {log_gene_file1} --prefix {log_prefix1} --abbr {params.spe} --enrich normal;{Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/bar_plot.r --stat {log_prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix1}.KEGG.bar;{Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/dot_plot.r --stat {log_prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix1}.KEGG.dot;{Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/GO.r --go {input.go_lib} --diffgene {log_gene_file1} --enrich normal --prefix {log_prefix1};{Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/bar_plot.r --stat {log_prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix1}.GObar;{Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/dot_plot.r --stat {log_prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix1}.GOdot; " >> {shell_file}""")
+        shell("""echo "{Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {log_gene_file2} --prefix {log_prefix2} --abbr {params.spe} --enrich normal;{Rscript} {bar_plot} --stat {log_prefix2}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix2}.KEGG.bar;{Rscript} {dot_plot} --stat {log_prefix2}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix2}.KEGG.dot;{Rscript} {GO} --go {input.go_lib} --diffgene {log_gene_file2} --enrich normal --prefix {log_prefix2};{Rscript} {bar_plot} --stat {log_prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix2}.GObar;{Rscript} {dot_plot} --stat {log_prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix2}.GOdot;" >> {shell_file}""")
         shell(
         """
         {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/KEGG.r --kegg {input.kegg_lib} --diffgene {gene_file1} --prefix {prefix1} --abbr {params.spe} --enrich normal;
@@ -432,6 +566,8 @@ rule xpclr_enrich:
         {Rscript} {bar_plot} --stat {prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix2}.GObar;
         {Rscript} {dot_plot} --stat {prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix2}.GOdot;
         """)
+
+
         shell("touch {output}")
 
 
@@ -444,33 +580,41 @@ rule mk_db_prepare:
     output:
         cds_file = '01.Prepare/Enrich/ref.cds',
         pep_file = '01.Prepare/Enrich/ref.pep'
-    shell:
-        """
+    run:
+        shell_file = '00.Bin/Enrich/00.mk_db_prepare.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+
+        log_cds_file = os.path.abspath(output.cds_file)
+        log_pep_file = os.path.abspath(output.pep_file)
+        shell('echo "{python} {Get_gene_seq} -f {input.fasta_file} -b {input.gene_file} -oc {log_cds_file} -op {log_pep_file}" >> {shell_file}')
+        shell("""
         {python} {Get_gene_seq} -f {input.fasta_file} -b {input.gene_file} -oc {output.cds_file} -op {output.pep_file}
-        """
+        """)
+        
 
 rule mk_kegg_library:
     input:
         cds_file = '01.Prepare/Enrich/ref.cds'
     output:
         kegg_lib = '01.Prepare/Enrich/ref.kegg.xls',
-        kobas_file = temp('01.Prepare/Enrich/ref.kegg.kobas.xls'),
-        kegg_bed_file = temp('01.Prepare/Enrich/ref.kegg.kobas.bed')
+        kobas_file = '01.Prepare/Enrich/ref.kegg.kobas.xls',
+        kegg_bed_file = '01.Prepare/Enrich/ref.kegg.kobas.bed'
     params:
         spe = spe
     resources:
         mem_mb=4,
         disk_mb=4
-    shell:
-        """
-        set +u;
-        export PATH=/work1/Users/wangtianyi/software/conda/miniconda3/bin:$PATH;
-        source activate /work1/Users/jerry_jiang/miniconda3/envs/kobas_3.0.3;
-        export PATH=/work1/Users/jerry_jiang/miniconda3/envs/r_3.6.0/bin:$PATH;
-        {kobas_python} {kobas_annotate} -i {input.cds_file} -t fasta:nuc -e 1e-5 -s {params.spe} -n 8 -o {output.kobas_file};
-        {get_annotate_kegg} --annotate {output.kobas_file} --outfile {output.kegg_bed_file};
-        {get_kegg_pathway} --species_kegg {params.spe} --annotate_kegg {output.kegg_bed_file} --outfile {output.kegg_lib}
-        """
+    run:
+        shell_file = '00.Bin/Enrich/01.mk_kegg_library.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+        log_cds = os.path.abspath(input.cds_file)
+        log_kobas_file = os.path.abspath(output.kobas_file)
+        log_kegg_bed_file = os.path.abspath(output.kegg_bed_file)
+        log_kegg_lib = os.path.abspath(output.kegg_lib)
+        shell("""echo "set +u;export PATH=/work1/Users/wangtianyi/software/conda/miniconda3/bin:\$PATH;source activate /work1/Users/jerry_jiang/miniconda3/envs/kobas_3.0.3;export PATH=/work1/Users/jerry_jiang/miniconda3/envs/r_3.6.0/bin:\$PATH;{kobas_python} {kobas_annotate} -i {log_cds} -t fasta:nuc -e 1e-5 -s {params.spe} -n 8 -o {log_kobas_file};{get_annotate_kegg} --annotate {log_kobas_file} --outfile {log_kegg_bed_file};{get_kegg_pathway} --species_kegg {params.spe} --annotate_kegg {log_kegg_bed_file} --outfile {log_kegg_lib}" >> {shell_file}""")
+        shell("""set +u;source activate /work1/Users/jerry_jiang/miniconda3/envs/kobas_3.0.3;export PATH=/work1/Users/wangtianyi/software/conda/miniconda3/bin:$PATH;export PATH=/work1/Users/jerry_jiang/miniconda3/envs/r_3.6.0/bin:$PATH;{kobas_python} {kobas_annotate} -i {input.cds_file} -t fasta:nuc -e 1e-5 -s {params.spe} -n 8 -o {output.kobas_file};{get_annotate_kegg} --annotate {output.kobas_file} --outfile {output.kegg_bed_file};{get_kegg_pathway} --species_kegg {params.spe} --annotate_kegg {output.kegg_bed_file} --outfile {output.kegg_lib}""")
+
+
 
 
 
@@ -486,16 +630,20 @@ rule mk_go_library:
         disk_mb=4
     params:
         outdir = '01.Prepare/Enrich/'
-    shell:
-        """
-        export PATH=/work1/Users/wangtianyi/software/conda/miniconda3/bin:$PATH;
-        source activate /work1/Users/jerry_jiang/miniconda3/envs/prepare_data;
-        export PATH=/work1/Users/jerry_jiang/miniconda3/envs/r_3.6.0/bin:$PATH;
-        export PATH=/work1/Users/jerry_jiang/miniconda3/envs/jdk/jdk-11.0.9/bin:$PATH;
-        {interproscan} -t p -i {input.pep_file} -b {input.pep_file}  -iprlookup -goterms -pa -appl Pfam,SUPERFAMILY -dp -T {params.outdir};
-        {get_interpro_go} --interpro {output.interpro_pre} --outfile {output.interpro_go_file};
-        {get_go_all} --go {output.interpro_go_file} --outfile {output.go_lib}
-        """
+    run:
+        shell_file = '00.Bin/Enrich/01.mk_go_library.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+
+        log_pep_file = os.path.abspath(input.pep_file)
+        log_interpro_go_file = os.path.abspath(output.interpro_go_file)
+        log_interpro_pre = os.path.abspath(output.interpro_pre)
+        log_go_lib = os.path.abspath(output.go_lib)
+        log_params = os.path.abspath(params.outdir)
+        shell("""echo "export PATH=/work1/Users/wangtianyi/software/conda/miniconda3/bin:\$PATH;source activate /work1/Users/jerry_jiang/miniconda3/envs/prepare_data;export PATH=/work1/Users/jerry_jiang/miniconda3/envs/r_3.6.0/bin:\$PATH;export PATH=/work1/Users/jerry_jiang/miniconda3/envs/jdk/jdk-11.0.9/bin:\$PATH;{interproscan} -t p -i {log_pep_file} -b {log_pep_file}  -iprlookup -goterms -pa -appl Pfam,SUPERFAMILY -dp -T {log_params};{get_interpro_go} --interpro {log_interpro_pre} --outfile {log_interpro_go_file};{get_go_all} --go {log_interpro_go_file} --outfile {log_go_lib}" >> {shell_file}""")
+        shell("""set +u;source activate /work1/Users/jerry_jiang/miniconda3/envs/prepare_data;export PATH=/work1/Users/jerry_jiang/miniconda3/envs/r_3.6.0/bin:$PATH;export PATH=/work1/Users/jerry_jiang/miniconda3/envs/jdk/jdk-11.0.9/bin:$PATH;{interproscan} -t p -i {input.pep_file} -b {input.pep_file}  -iprlookup -goterms -pa -appl Pfam,SUPERFAMILY -dp -T {params.outdir};{get_interpro_go} --interpro {output.interpro_pre} --outfile {output.interpro_go_file};{get_go_all} --go {output.interpro_go_file} --outfile {output.go_lib}""")
+
+
+
 
 
 
@@ -511,11 +659,24 @@ rule merge_all_result:
     params:
         SNPCut
     run:
+        shell_file = '00.Bin/Sort/01.merge_all_result.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+
         pi1 = '02.Analysis/{com}/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         pi2 = '02.Analysis/{com}/{com}_{prefix}_select.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
         xpclr1 = '02.Analysis/{com}/{com}_{prefix}_select.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         xpclr2 = '02.Analysis/{com}/{com}_{prefix}_select.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+
+        
+        log_pi1 = os.path.abspath(pi1)
+        log_pi2 = os.path.abspath(pi1)
+        log_xpclr1 = os.path.abspath(pi1)
+        log_xpclr2 = os.path.abspath(pi1)
+        log_fst = os.path.abspath(input.fst_file)
+        log_output = os.path.abspath(output[0])
+        shell('echo "{python} {Merge_all_result} -fst {log_fst} -pi1 {log_pi1} -pi2 {log_pi2} -xp1 {log_xpclr1} -xp2 {log_xpclr2} -t {params} -o {log_output}" >> {shell_file}')
         shell("{python} {Merge_all_result} -fst {input.fst_file} -pi1 {pi1} -pi2 {pi2} -xp1 {xpclr1} -xp2 {xpclr2} -t {params} -o {output}")
+
 
 
 # 整合top方法
@@ -528,11 +689,26 @@ rule merge_top_result:
         top_value = '05.Result/{g}/Arrange/{g}.top.value.xls',
         top_win_sleep = '05.Result/{g}/Arrange/{g}.top.win_sleep.xls'
     run:
+        shell_file = '00.Bin/Sort/02.merge_top_result.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+
         pi1 = '03.Top/{com}/{com}_{prefix}_select.top.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         pi2 = '03.Top/{com}/{com}_{prefix}_select.top.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
         xpclr_top1 = '03.Top/{com}/{com}_{prefix}_select.top.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         xpclr_top2 = '03.Top/{com}/{com}_{prefix}_select.top.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+
+        log_pi1 = os.path.abspath(pi1)
+        log_pi2 = os.path.abspath(pi2)
+        log_xpclr_top1 = os.path.abspath(xpclr_top1)
+        log_xpclr_top2 = os.path.abspath(xpclr_top2)
+        log_fst = os.path.abspath(input.fst_top)
+        log_top_value = os.path.abspath(output.top_value)
+        log_top_win_sleep = os.path.abspath(output.top_win_sleep)
+        shell('echo "{python} {Merge_top_result} -f {log_fst} -p1 {log_pi1} -p2 {log_pi2} -xp1 {log_xpclr_top1} -xp2 {log_xpclr_top2} -o1 {log_top_value} -o2 {log_top_win_sleep}" >> {shell_file}')
         shell("{python} {Merge_top_result} -f {input.fst_top} -p1 {pi1} -p2 {pi2} -xp1 {xpclr_top1} -xp2 {xpclr_top2} -o1 {output.top_value} -o2 {output.top_win_sleep}")
+
+
+
 
 
 # 基因维度数据整合
@@ -544,11 +720,26 @@ rule merge_gene_result:
     output:
         '05.Result/{g}/Arrange/{g}.sleep.gene.stat.xls'
     run:
+        shell_file = '00.Bin/Sort/03.merge_gene_result.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+
         pi_gene_file1 = '03.Top/{com}/{com}_{prefix}_select.gene.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         pi_gene_file2 = '03.Top/{com}/{com}_{prefix}_select.gene.pi'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
         xpclr_gene_file1 = '03.Top/{com}/{com}_{prefix}_select.gene.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[0])
         xpclr_gene_file2 = '03.Top/{com}/{com}_{prefix}_select.gene.xpclr'.format(com=wildcards.g, prefix=wildcards.g.split('_')[1])
+
+        log_pi_gene_file1 = os.path.abspath(pi_gene_file1)
+        log_pi_gene_file2 = os.path.abspath(pi_gene_file2)
+        log_xpclr_gene_file1 = os.path.abspath(xpclr_gene_file1)
+        log_xpclr_gene_file2 = os.path.abspath(xpclr_gene_file2)
+        log_output = os.path.abspath(output[0])
+        log_fst_gene = os.path.abspath(input.fst_gene)
+        shell('echo "{python} {Gene_function_sort} -f {log_fst_gene} -p1 {log_pi_gene_file1} -p2 {log_pi_gene_file2} -x1 {log_xpclr_gene_file1} -x2 {log_xpclr_gene_file2} -o {log_output}" >> {shell_file}')
+
         shell("{python} {Gene_function_sort} -f {input.fst_gene} -p1 {pi_gene_file1} -p2 {pi_gene_file2} -x1 {xpclr_gene_file1} -x2 {xpclr_gene_file2} -o {output}")
+
+
+
 
 
 # 曼哈顿图绘制
@@ -558,8 +749,15 @@ rule manhattan_plot:
     output:
         temp('05.Result/{g}/Manhattan/plot.done')
     run:
+        shell_file = '00.Bin/Sort/03.merge_gene_result.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
         out_dir = '05.Result/{com}/Manhattan'.format(com=wildcards.g)
+
+        log_input = os.path.abspath(input[0])
+        log_output = os.path.abspath(out_dir)
+        shell('echo "{python} {manhattan} -i {log_input} -o {log_output}" >> {shell_file}')
         shell("{python} {manhattan} -i {input} -o {out_dir}")
+
         shell("touch {output}")
 
 
@@ -572,7 +770,13 @@ rule enrich_lns:
     output:
         directory('05.Result/{g}/GO_KEGG')
     run:
+        shell_file = '00.Bin/Sort/04.enrich_lns.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
         dirs = '04.Enrich/{com}'.format(com=wildcards.g)
         abs_dir = os.path.abspath(dirs)
+        log_outdir = os.path.abspath(output[0])
+        shell('echo "ln -s {abs_dir} {log_outdir}" >> {shell_file}')
+
         shell("ln -s {abs_dir} {output}")
+
 

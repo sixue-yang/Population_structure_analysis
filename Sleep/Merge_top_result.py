@@ -76,7 +76,7 @@ if __name__ == '__main__':
     check_dir(out_file1)
     check_dir(out_file2)
 
-    path_lis = [fst_file,p1_file,p2_file,xpclr1_file,xpclr1_file,xpclr2_file]
+    path_lis = [fst_file,p1_file,p2_file,xpclr1_file,xpclr2_file]
     df_list = [read_top(i) for i in path_lis]
     win_sleep_stat_df,win_sleep_value_df = merge_dfs(df_list)
     win_sleep_value_df.to_csv(out_file1,sep='\t',index=True,header=True)

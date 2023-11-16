@@ -123,9 +123,8 @@ if (type=='KEGG'|type=='DO'|type=='Reactome'|type=='DisGeNET') {
 
 p <- p + theme_bw() + theme(panel.border=element_rect(colour="black"))
 
-pdf(file=paste(prefix,'.pdf',sep=''))
-p
-dev.off()
+ggsave(p,filename=paste(prefix,'.pdf',sep=''))
+
 
 svg(filename=paste(prefix,'.svg',sep=''))
 p
