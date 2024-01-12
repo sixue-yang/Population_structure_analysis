@@ -161,10 +161,20 @@ python /work1/Users/yangsixue/pipline/GWAS_block_anlysis/script/main.py all -vcf
 
 在原基础上进行环境及输出，XPCLR计算，KEGG、GO富集的优化。
 
+======= 202401 优化内容 =======
+
+* 染色体vcf进一步拆分，加速XPCLR计算
+* KEGG、GO库，若直接输入参数，则不进行额外建库。若不存在，则单独建库
+主脚本参数已修改。
+
+============================
+
+
+
 ### 快速 运行
 
 ```shell
-python sleep_main_v1.py -p [分群文件] -v [基础标记] -c [染色体编号] -b [基因的bed文件] -g [基因功能文件] -r [参考基因组] -S [KEGG物种缩写，默认为osa] -t [选择top的阈值,默认选取前百分之5,，0.05] -s [过滤SNP的阈值,默认过滤SNP数量小于2的窗口] -win [窗口长度] -step [步长] -job [最大任务数,默认100] -wt [qsub投递后等待结果时间,默认300秒]
+python sleep_main_v1.py -p [分群文件] -v [基础标记] -c [染色体编号] -b [基因的bed文件] -g [基因功能文件] -r [参考基因组] -S [KEGG物种缩写，默认为osa] -t [选择top的阈值,默认选取前百分之5,，0.05] -s [过滤SNP的阈值,默认过滤SNP数量小于2的窗口] -win [窗口长度] -step [步长] -job [最大任务数,默认100] -wt [qsub投递后等待结果时间,默认300秒] -cn [每条染色体进一步拆分的数量] -kl [KEGG数据库] -gl [go数据库] -sl [拆分数据tag标签输出路径]
 ```
 
 

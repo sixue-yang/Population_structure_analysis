@@ -61,7 +61,9 @@ def prepare_data(my_model,path,snp_cut:int,flag:int):
     df[chr_tag] = df[chr_tag].map(change_capitalize)
     normal_columns = ['CHROM', 'BIN_START', 'BIN_END', f'SNP_Num_{flag}',out_value]
     df.columns = normal_columns
-    return df
+    # print(df)
+    df_unique = df.drop_duplicates(subset=['CHROM', 'BIN_START', 'BIN_END'], keep='first')
+    return df_unique
 
 
 

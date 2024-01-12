@@ -4,11 +4,12 @@ from collections import defaultdict
 import os
 import sys
 import yaml
+import subprocess as sp
 
 # 输入文件
 pop_file = config['pop_file']
 vcf_file = config['vcf_file']
-chr_list = config['chr_list']
+split_num = config['split_num']
 bed_file = config['bed_file']
 gene_name_file = config['gene_name_file']
 fast_file = config['fast_file']
@@ -17,6 +18,10 @@ topCut = config['topCut'] # 取前5%
 SNPCut = config['SNPCut']    # SNP的阈值
 win = config['win']
 step = config['step']
+kegg_lib = config['kegg_lib']
+go_lib = config['go_lib']
+split_log = config['split_log']
+chr_list = config['chr_list']
 
 # 软件环境
 scrip_dir = config['script_dir']
@@ -47,6 +52,8 @@ Merge_top_result = scrip_dir + os.sep + 'Merge_top_result.py'
 Gene_function_sort = scrip_dir + os.sep + 'Gene_function_sort.py'
 manhattan = scrip_dir + os.sep + 'manhattan.py'
 Get_gene_seq = scrip_dir + os.sep + 'enrich/01.Get_gene_seq.py'
+split_vcf = scrip_dir + os.sep + 'xpclr/split_vcf.py'
+
 ## kegg
 get_annotate_kegg = env_contig['get_annotate_kegg']
 get_kegg_pathway = env_contig['get_kegg_pathway']
@@ -67,9 +74,9 @@ def get_pop_list():
     return list(set(pop_list_df[1].tolist()))
 
 # 解析染色体列表，获取染色体编号
-def read_chrs():
+def read_chrs(tag_file):
     chrs = []
-    with open(chr_list) as chr_obj:
+    with open(tag_file) as chr_obj:
         for line in chr_obj:
             chrs.append(line.strip())
     return chrs
@@ -93,17 +100,40 @@ def get_pop2_pi(wildcards):
     pop2 = wildcards.g.split('_')[1]
     return f'01.Prepare/Pi/{pop2}.windowed.pi'
 
+def check_lib():
+    last_go_lib = os.path.abspath('01.Prepare/Enrich/ref.go.xls')
+    last_kegg_lib = os.path.abspath('01.Prepare/Enrich/ref.kegg.xls')
+    os.makedirs(os.path.dirname(last_go_lib),exist_ok=True)
 
+    if kegg_lib:
+
+        cmd = f'ln -sf {kegg_lib} {last_kegg_lib}'
+        sp.call(cmd,shell=True)
+    if go_lib:
+        cmd = f'ln -sf {go_lib} {last_go_lib}'
+        sp.call(cmd,shell=True)
+
+def aggregate_input(file):
+    # 读取由checkpoint生成的文件，并根据其内容生成新的输入列表
+    with open(file) as f:
+        out_list = []
+        for i in f:
+            out_list.append(i.strip())
+        return out_list
+
+check_lib()
 # xpclr 文件参数传递
+split_sch = aggregate_input(split_log)
+chrs = aggregate_input(chr_list)
 
-
+# print(split_sch)
 # 排序 --> 固定后续组合顺序
 pop_list = sorted(get_pop_list())
 # 两两分群组合
 com_list = list(itertools.combinations(pop_list, 2))
 groupdir = ['_'.join(list(i)) for i in com_list]
 # 染色体列表 --> xpclr需要分染色体进行分析
-chrs = read_chrs()
+
 
 
 
@@ -119,7 +149,9 @@ rule all:
         expand('05.Result/{g}/Arrange/{g}.top.win_sleep.xls',g=groupdir),
         expand('05.Result/{g}/Arrange/{g}.sleep.gene.stat.xls',g=groupdir),
         expand('05.Result/{g}/GO_KEGG',g=groupdir),
-        expand('05.Result/{g}/Manhattan/plot.done',g=groupdir)
+        expand('05.Result/{g}/Manhattan/plot.done',g=groupdir),
+        expand('01.Prepare/XPCLR/{schr}-{split_tag}.vcf.gz',schr=chrs,split_tag=split_sch)
+        
 
 
 
@@ -388,7 +420,6 @@ rule xpclr_prepare_00:
         {python} {trun_vcf} -v {input.vcf} -o {output}
         """)
         
-
 # 拆分染色体
 rule xpclr_prepare_01:
     input:
@@ -406,17 +437,70 @@ rule xpclr_prepare_01:
         """
         {vcftools} --gzvcf {input} --chr {wildcards.schr} --recode --recode-INFO-all -c | gzip -c  > {output}
         """)
-        
+
+def get_test(wildcards):
+    outputs = []
+    for split_tag in split_list:
+        outputs.append(f"01.Prepare/XPCLR/{wildcards.schr}-{split_tag}.vcf.gz")
+    return outputs
+
+# 进一步拆分
+rule xpclr_prepare_02:
+    input:
+        '01.Prepare/XPCLR/{schr}.vcf.gz'
+    output:
+        check_file = '01.Prepare/XPCLR/{schr}_split.ok',
+    params:
+        split_num = split_num
+    run:
+        shell_file = '00.Bin/XPCLR/00.xpclr_prepare_01.sh'
+        os.makedirs(os.path.dirname(shell_file),exist_ok=True)
+        print('正在执行xpclr_prepare_01')
+        log_input = os.path.abspath(input[0])
+        out_prefix = os.path.dirname(os.path.abspath(output.check_file)) + os.sep + wildcards.schr
+        check_file = os.path.abspath(output.check_file)
+        shell('echo "{python} {split_vcf} -v {log_input} -o {out_prefix} -n {params.split_num} && touch {check_file}" >> {shell_file}')
+        shell(
+        """
+        {python} {split_vcf} -v {log_input} -o {out_prefix} -n {params.split_num} && touch {check_file}
+        """)
+
+# checkpoint xpclr_split_log:
+#     input:
+#         tag_log = '01.Prepare/XPCLR/split.log'
+#     output:
+#         schr_tag = '01.Prepare/split.log'
+#     resources:
+#         cpus=1,
+#         mem="0.1G"
+#     shell:
+#         """
+#         # 你的命令来生成文件
+#         ln -sf {input.tag_log} {output.schr_tag}
+#         """
+
+
+
+# rule xpclr_prepare_02:
+#     input:
+#         '01.Prepare/XPCLR/split.ok'
+#     output:
+#         split_vcf = '01.Prepare/XPCLR/{schr}.vcf.gz'
+#     run:
+#         print('正在执行xpclr_prepare_02')
+#         pass
+
 
 
 # 分析不同组合下各个染色体 xpclr分数
 rule xpclr_count_01:
     input:
-        vcf = '01.Prepare/XPCLR/{schr}.vcf.gz',
+        check_file = '01.Prepare/XPCLR/{schr}_split.ok',
+        vcf = '01.Prepare/XPCLR/{schr}-{split_tag}.vcf.gz',
         pop1_file = get_pop1,
         pop2_file = get_pop2
     output:
-        '01.Prepare/XPCLR/{g}/{schr}.01.done'
+        '01.Prepare/XPCLR/{g}/{schr}-{split_tag}.01.done'
     params:
         win = win,
         step = step
@@ -424,17 +508,23 @@ rule xpclr_count_01:
         cpus=1,
         mem=3
     run:
+        # print('正在执行xpclr_count_01')
         shell_file = '00.Bin/XPCLR/01.xpclr_count.sh'
         os.makedirs(os.path.dirname(shell_file),exist_ok=True)
 
-        outfile1 = '01.Prepare/XPCLR/{com}/{com}_{select}_{schr}_select.xpclr'.format(com=wildcards.g,schr=wildcards.schr, select=wildcards.g.split('_')[0])
-        outfile2 = '01.Prepare/XPCLR/{com}/{com}_{select}_{schr}_select.xpclr'.format(com=wildcards.g,schr=wildcards.schr, select=wildcards.g.split('_')[1])
+        outfile1 = '01.Prepare/XPCLR/{com}/{com}_{select}_{schr}-{split_tag}_select.xpclr'.format(com=wildcards.g,schr=wildcards.schr,split_tag=wildcards.split_tag, select=wildcards.g.split('_')[0])
+        outfile2 = '01.Prepare/XPCLR/{com}/{com}_{select}_{schr}-{split_tag}_select.xpclr'.format(com=wildcards.g,schr=wildcards.schr, split_tag=wildcards.split_tag, select=wildcards.g.split('_')[1])
         
+        
+
         log_input = os.path.abspath(input.vcf)
         log_outfile1 = os.path.abspath(outfile1)
         log_outfile2 = os.path.abspath(outfile2)
         log_pop1_file = os.path.abspath(input.pop1_file)
         log_pop2_file = os.path.abspath(input.pop2_file)
+
+        os.makedirs(os.path.dirname(log_outfile1),exist_ok=True)
+        os.makedirs(os.path.dirname(log_outfile2),exist_ok=True)
         shell('echo "{xpclr} --out {log_outfile1} -Sa {log_pop1_file} -Sb {log_pop2_file} -I {log_input} -C {wildcards.schr} --ld 0.95 --phased --maxsnps 600 --size {params.win} --step {params.step}" >> {shell_file}')
         shell('echo "{xpclr} --out {log_outfile2} -Sa {log_pop2_file} -Sb {log_pop1_file} -I {log_input} -C {wildcards.schr} --ld 0.95 --phased --maxsnps 600 --size {params.win} --step {params.step}" >> {shell_file}')
         
@@ -450,7 +540,7 @@ rule xpclr_count_01:
 # 生成特定标志位 确定每一个组合各个染色体全部计算完成
 rule xpclr_count_02:
     input:
-        expand('01.Prepare/XPCLR/{g}/{schr}.01.done',g=groupdir,schr=chrs)
+        expand('01.Prepare/XPCLR/{g}/{schr}-{split_tag}.01.done',g=groupdir,schr=chrs,split_tag=split_sch)
     output:
         '01.Prepare/XPCLR/{g}/{g}.done'
     shell:
@@ -467,15 +557,16 @@ rule merge_xpclr_02:
     output:
         '02.Analysis/{g}/{g}.xpclr.done'
     params:
-        '02.Analysis/{g}/{g}'
+        out_prefix = '02.Analysis/{g}/{g}',
+        snp_cut = SNPCut
     run:
         shell_file = '00.Bin/XPCLR/02.xpclr_merge.sh'
         os.makedirs(os.path.dirname(shell_file),exist_ok=True)
         log_input = os.path.abspath(input[0])
-        log_params = os.path.abspath(params[0])
-        shell('echo "{python} {merge_xpclr} -i {input} -o {log_params}" >> {shell_file}')
+        log_params = os.path.abspath(params.out_prefix)
+        shell('echo "{python} {merge_xpclr} -i {log_input} -o {log_params} -sc {params.snp_cut}" >> {shell_file}')
 
-        shell("""{python} {merge_xpclr} -i {input} -o {params}""")
+        shell("""{python} {merge_xpclr} -i {input} -o {params.out_prefix} -sc {params.snp_cut}""")
 
         shell('touch {output}')
 
@@ -546,16 +637,26 @@ rule xpclr_enrich:
         log_prefix1 = os.path.abspath(prefix1)
         log_prefix2 = os.path.abspath(prefix2)
 
-        shell("""echo "{Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/KEGG.r --kegg {input.kegg_lib} --diffgene {log_gene_file1} --prefix {log_prefix1} --abbr {params.spe} --enrich normal;{Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/bar_plot.r --stat {log_prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix1}.KEGG.bar;{Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/dot_plot.r --stat {log_prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix1}.KEGG.dot;{Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/GO.r --go {input.go_lib} --diffgene {log_gene_file1} --enrich normal --prefix {log_prefix1};{Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/bar_plot.r --stat {log_prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix1}.GObar;{Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/dot_plot.r --stat {log_prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix1}.GOdot; " >> {shell_file}""")
-        shell("""echo "{Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {log_gene_file2} --prefix {log_prefix2} --abbr {params.spe} --enrich normal;{Rscript} {bar_plot} --stat {log_prefix2}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix2}.KEGG.bar;{Rscript} {dot_plot} --stat {log_prefix2}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix2}.KEGG.dot;{Rscript} {GO} --go {input.go_lib} --diffgene {log_gene_file2} --enrich normal --prefix {log_prefix2};{Rscript} {bar_plot} --stat {log_prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix2}.GObar;{Rscript} {dot_plot} --stat {log_prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix2}.GOdot;" >> {shell_file}""")
+        shell("""echo "{Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {log_gene_file1} --prefix {log_prefix1} --abbr {params.spe} --enrich normal;
+        {Rscript} {bar_plot} --stat {log_prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix1}.KEGG.bar;
+        {Rscript} {dot_plot} --stat {log_prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix1}.KEGG.dot;
+        {Rscript} {GO} --go {input.go_lib} --diffgene {log_gene_file1} --enrich normal --prefix {log_prefix1};
+        {Rscript} {bar_plot} --stat {log_prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix1}.GObar;
+        {Rscript} {dot_plot} --stat {log_prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix1}.GOdot; " >> {shell_file}""")
+        shell("""echo "{Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {log_gene_file2} --prefix {log_prefix2} --abbr {params.spe} --enrich normal;
+        {Rscript} {bar_plot} --stat {log_prefix2}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix2}.KEGG.bar;
+        {Rscript} {dot_plot} --stat {log_prefix2}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {log_prefix2}.KEGG.dot;
+        {Rscript} {GO} --go {input.go_lib} --diffgene {log_gene_file2} --enrich normal --prefix {log_prefix2};
+        {Rscript} {bar_plot} --stat {log_prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix2}.GObar;
+        {Rscript} {dot_plot} --stat {log_prefix2}\_GOenrich.xls --type GO --cutoff padj --prefix {log_prefix2}.GOdot;" >> {shell_file}""")
         shell(
         """
-        {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/KEGG.r --kegg {input.kegg_lib} --diffgene {gene_file1} --prefix {prefix1} --abbr {params.spe} --enrich normal;
-        {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/bar_plot.r --stat {prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {prefix1}.KEGG.bar;
-        {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/dot_plot.r --stat {prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {prefix1}.KEGG.dot;
-        {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/GO.r --go {input.go_lib} --diffgene {gene_file1} --enrich normal --prefix {prefix1};
-        {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/bar_plot.r --stat {prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix1}.GObar;
-        {Rscript} /work1/Users/yangsixue/pipline/group/sleep/scrip/enrich/dot_plot.r --stat {prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix1}.GOdot;
+        {Rscript} {KEGG} --kegg {input.kegg_lib} --diffgene {gene_file1} --prefix {prefix1} --abbr {params.spe} --enrich normal;
+        {Rscript} {bar_plot} --stat {prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {prefix1}.KEGG.bar;
+        {Rscript} {dot_plot} --stat {prefix1}\_KEGGenrich.xls --type KEGG --cutoff padj --prefix {prefix1}.KEGG.dot;
+        {Rscript} {GO} --go {input.go_lib} --diffgene {gene_file1} --enrich normal --prefix {prefix1};
+        {Rscript} {bar_plot} --stat {prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix1}.GObar;
+        {Rscript} {dot_plot} --stat {prefix1}\_GOenrich.xls --type GO --cutoff padj --prefix {prefix1}.GOdot;
         """)
         shell(
         """
@@ -780,3 +881,4 @@ rule enrich_lns:
         shell("ln -s {abs_dir} {output}")
 
 
+ruleorder: xpclr_prepare_02  > xpclr_count_01
