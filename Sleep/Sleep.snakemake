@@ -22,6 +22,7 @@ kegg_lib = config['kegg_lib']
 go_lib = config['go_lib']
 split_log = config['split_log']
 chr_list = config['chr_list']
+xpclr_ld = config['xpclr_ld']
 
 # 软件环境
 scrip_dir = config['script_dir']
@@ -106,7 +107,6 @@ def check_lib():
     os.makedirs(os.path.dirname(last_go_lib),exist_ok=True)
 
     if kegg_lib:
-
         cmd = f'ln -sf {kegg_lib} {last_kegg_lib}'
         sp.call(cmd,shell=True)
     if go_lib:
@@ -120,6 +120,15 @@ def aggregate_input(file):
         for i in f:
             out_list.append(i.strip())
         return out_list
+
+
+def get_split_files(wildcards):
+    checkpoint_output = os.path.dirname(os.path.abspath(checkpoints.xpclr_prepare_02.get(**wildcards).output[0]))
+    split_files, = glob_wildcards(os.path.join(checkpoint_output, '{}-{}.vcf.gz'.format(wildcards.schr, '{split_tag}')))
+    # print(split_files)
+    return split_files
+    #return expand("01.Prepare/XPCLR/{schr}-{split_tag}.vcf.gz", schr=wildcards.schr, split_tag=split_files)
+
 
 check_lib()
 # xpclr 文件参数传递
@@ -135,8 +144,6 @@ groupdir = ['_'.join(list(i)) for i in com_list]
 # 染色体列表 --> xpclr需要分染色体进行分析
 
 
-
-
 # 统筹标记结果文件
 
 rule all:
@@ -144,17 +151,23 @@ rule all:
         expand('01.Prepare/{pop_all}.list',pop_all=pop_list),
         expand('01.Prepare/Pi/{pop_all}.windowed.pi',pop_all=pop_list),
         '01.Prepare/XPCLR/XPCLR.vcf.gz',
+        expand('01.Prepare/XPCLR/{schr}.vcf.gz',schr=chrs),
+        expand('01.Prepare/XPCLR/{g}/{schr}-{split_tag}.01.done',schr=chrs,split_tag=split_sch,g=groupdir),
+        expand('01.Prepare/XPCLR/{schr}_split.ok',schr=chrs),
         expand('05.Result/{g}/Arrange/{g}.total.value.xls',g=groupdir),
         expand('05.Result/{g}/Arrange/{g}.top.value.xls',g=groupdir),
         expand('05.Result/{g}/Arrange/{g}.top.win_sleep.xls',g=groupdir),
         expand('05.Result/{g}/Arrange/{g}.sleep.gene.stat.xls',g=groupdir),
         expand('05.Result/{g}/GO_KEGG',g=groupdir),
         expand('05.Result/{g}/Manhattan/plot.done',g=groupdir),
-        expand('01.Prepare/XPCLR/{schr}-{split_tag}.vcf.gz',schr=chrs,split_tag=split_sch)
-        
+        # expand('01.Prepare/XPCLR/{schr}-{split_tag}.vcf.gz',schr=chrs,split_tag=split_sch),
 
-
-
+# rule all:
+#     input:
+#         expand('01.Prepare/{pop_all}.list',pop_all=pop_list),
+#         expand('01.Prepare/Pi/{pop_all}.windowed.pi',pop_all=pop_list),
+#         expand('04.Enrich/{g}/{g}.pi.done',g=groupdir),
+#         expand('04.Enrich/{g}/{g}.enrich.fst.done',g=groupdir),
         
 
 # 准备分群文件、固定组合队列
@@ -423,40 +436,34 @@ rule xpclr_prepare_00:
 # 拆分染色体
 rule xpclr_prepare_01:
     input:
-        '01.Prepare/XPCLR/XPCLR.vcf.gz'
+        raw_vcf = '01.Prepare/XPCLR/XPCLR.vcf.gz'
     output:
-        '01.Prepare/XPCLR/{schr}.vcf.gz'
+        chr_vcf = '01.Prepare/XPCLR/{schr}.vcf.gz'
     run:
         shell_file = '00.Bin/XPCLR/00.xpclr_prepare_01.sh'
         os.makedirs(os.path.dirname(shell_file),exist_ok=True)
 
-        log_input = os.path.abspath(input[0])
-        log_output = os.path.abspath(output[0])
+        log_input = os.path.abspath(input.raw_vcf)
+        log_output = os.path.abspath(output.chr_vcf)
         shell('echo "{vcftools} --gzvcf {log_input} --chr {wildcards.schr} --recode --recode-INFO-all -c | gzip -c  > {log_output}" >> {shell_file}')
         shell(
         """
         {vcftools} --gzvcf {input} --chr {wildcards.schr} --recode --recode-INFO-all -c | gzip -c  > {output}
         """)
 
-def get_test(wildcards):
-    outputs = []
-    for split_tag in split_list:
-        outputs.append(f"01.Prepare/XPCLR/{wildcards.schr}-{split_tag}.vcf.gz")
-    return outputs
 
 # 进一步拆分
 rule xpclr_prepare_02:
     input:
-        '01.Prepare/XPCLR/{schr}.vcf.gz'
+        prepare_vcf = '01.Prepare/XPCLR/{schr}.vcf.gz'
     output:
         check_file = '01.Prepare/XPCLR/{schr}_split.ok',
     params:
         split_num = split_num
     run:
-        shell_file = '00.Bin/XPCLR/00.xpclr_prepare_01.sh'
+        shell_file = '00.Bin/XPCLR/00.xpclr_prepare_02.sh'
         os.makedirs(os.path.dirname(shell_file),exist_ok=True)
-        print('正在执行xpclr_prepare_01')
-        log_input = os.path.abspath(input[0])
+        log_input = os.path.abspath(input.prepare_vcf)
         out_prefix = os.path.dirname(os.path.abspath(output.check_file)) + os.sep + wildcards.schr
         check_file = os.path.abspath(output.check_file)
         shell('echo "{python} {split_vcf} -v {log_input} -o {out_prefix} -n {params.split_num} && touch {check_file}" >> {shell_file}')
@@ -465,45 +472,23 @@ rule xpclr_prepare_02:
         {python} {split_vcf} -v {log_input} -o {out_prefix} -n {params.split_num} && touch {check_file}
         """)
 
-# checkpoint xpclr_split_log:
-#     input:
-#         tag_log = '01.Prepare/XPCLR/split.log'
-#     output:
-#         schr_tag = '01.Prepare/split.log'
-#     resources:
-#         cpus=1,
-#         mem="0.1G"
-#     shell:
-#         """
-#         # 你的命令来生成文件
-#         ln -sf {input.tag_log} {output.schr_tag}
-#         """
 
-
-
-# rule xpclr_prepare_02:
-#     input:
-#         '01.Prepare/XPCLR/split.ok'
-#     output:
-#         split_vcf = '01.Prepare/XPCLR/{schr}.vcf.gz'
-#     run:
-#         print('正在执行xpclr_prepare_02')
-#         pass
 
 
 
 # 分析不同组合下各个染色体 xpclr分数
+# vcf = lambda wildcards: '01.Prepare/XPCLR/' + wildcards.schr + '-' + wildcards.split_tag + '.vcf.gz',
 rule xpclr_count_01:
     input:
         check_file = '01.Prepare/XPCLR/{schr}_split.ok',
-        vcf = '01.Prepare/XPCLR/{schr}-{split_tag}.vcf.gz',
         pop1_file = get_pop1,
         pop2_file = get_pop2
     output:
         '01.Prepare/XPCLR/{g}/{schr}-{split_tag}.01.done'
     params:
         win = win,
-        step = step
+        step = step,
+        ld = xpclr_ld
     resources:
         cpus=1,
         mem=3
@@ -511,13 +496,13 @@ rule xpclr_count_01:
         # print('正在执行xpclr_count_01')
         shell_file = '00.Bin/XPCLR/01.xpclr_count.sh'
         os.makedirs(os.path.dirname(shell_file),exist_ok=True)
-
+        vcf = "01.Prepare/XPCLR/{schr}-{split_tag}.vcf.gz".format(schr=wildcards.schr,split_tag=wildcards.split_tag)
         outfile1 = '01.Prepare/XPCLR/{com}/{com}_{select}_{schr}-{split_tag}_select.xpclr'.format(com=wildcards.g,schr=wildcards.schr,split_tag=wildcards.split_tag, select=wildcards.g.split('_')[0])
         outfile2 = '01.Prepare/XPCLR/{com}/{com}_{select}_{schr}-{split_tag}_select.xpclr'.format(com=wildcards.g,schr=wildcards.schr, split_tag=wildcards.split_tag, select=wildcards.g.split('_')[1])
         
         
 
-        log_input = os.path.abspath(input.vcf)
+        log_input = os.path.abspath(vcf)
         log_outfile1 = os.path.abspath(outfile1)
         log_outfile2 = os.path.abspath(outfile2)
         log_pop1_file = os.path.abspath(input.pop1_file)
@@ -525,11 +510,11 @@ rule xpclr_count_01:
 
         os.makedirs(os.path.dirname(log_outfile1),exist_ok=True)
         os.makedirs(os.path.dirname(log_outfile2),exist_ok=True)
-        shell('echo "{xpclr} --out {log_outfile1} -Sa {log_pop1_file} -Sb {log_pop2_file} -I {log_input} -C {wildcards.schr} --ld 0.95 --phased --maxsnps 600 --size {params.win} --step {params.step}" >> {shell_file}')
-        shell('echo "{xpclr} --out {log_outfile2} -Sa {log_pop2_file} -Sb {log_pop1_file} -I {log_input} -C {wildcards.schr} --ld 0.95 --phased --maxsnps 600 --size {params.win} --step {params.step}" >> {shell_file}')
+        shell('echo "{xpclr} --out {log_outfile1} -Sa {log_pop1_file} -Sb {log_pop2_file} -I {log_input} -C {wildcards.schr} --ld {params.ld} --phased --maxsnps 600 --size {params.win} --step {params.step}" >> {shell_file}')
+        shell('echo "{xpclr} --out {log_outfile2} -Sa {log_pop2_file} -Sb {log_pop1_file} -I {log_input} -C {wildcards.schr} --ld {params.ld} --phased --maxsnps 600 --size {params.win} --step {params.step}" >> {shell_file}')
         
-        shell('{xpclr} --out {outfile1} -Sa {input.pop1_file} -Sb {input.pop2_file} -I {input.vcf} -C {wildcards.schr} --ld 0.95 --phased --maxsnps 600 --size {params.win} --step {params.step}')
-        shell('{xpclr} --out {outfile2} -Sa {input.pop2_file} -Sb {input.pop1_file} -I {input.vcf} -C {wildcards.schr} --ld 0.95 --phased --maxsnps 600 --size {params.win} --step {params.step}')
+        shell('{xpclr} --out {outfile1} -Sa {input.pop1_file} -Sb {input.pop2_file} -I {log_input} -C {wildcards.schr} --ld {params.ld} --phased --maxsnps 600 --size {params.win} --step {params.step}')
+        shell('{xpclr} --out {outfile2} -Sa {input.pop2_file} -Sb {input.pop1_file} -I {log_input} -C {wildcards.schr} --ld {params.ld} --phased --maxsnps 600 --size {params.win} --step {params.step}')
         
 
         shell('touch {output}')
@@ -680,11 +665,10 @@ rule mk_db_prepare:
         gene_file = bed_file
     output:
         cds_file = '01.Prepare/Enrich/ref.cds',
-        pep_file = '01.Prepare/Enrich/ref.pep'
+        pep_file = '01.Prepare/Enrich/ref.pep',
     run:
         shell_file = '00.Bin/Enrich/00.mk_db_prepare.sh'
         os.makedirs(os.path.dirname(shell_file),exist_ok=True)
-
         log_cds_file = os.path.abspath(output.cds_file)
         log_pep_file = os.path.abspath(output.pep_file)
         shell('echo "{python} {Get_gene_seq} -f {input.fasta_file} -b {input.gene_file} -oc {log_cds_file} -op {log_pep_file}" >> {shell_file}')
@@ -734,7 +718,6 @@ rule mk_go_library:
     run:
         shell_file = '00.Bin/Enrich/01.mk_go_library.sh'
         os.makedirs(os.path.dirname(shell_file),exist_ok=True)
-
         log_pep_file = os.path.abspath(input.pep_file)
         log_interpro_go_file = os.path.abspath(output.interpro_go_file)
         log_interpro_pre = os.path.abspath(output.interpro_pre)
@@ -881,4 +864,4 @@ rule enrich_lns:
         shell("ln -s {abs_dir} {output}")
 
 
-ruleorder: xpclr_prepare_02  > xpclr_count_01
+ruleorder: xpclr_prepare_02 > xpclr_count_01

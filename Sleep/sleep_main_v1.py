@@ -31,6 +31,7 @@ def get_args():
     parser.add_argument("-S", "--spe", help="KEGG 建库使用的物种缩写", default='osa')
     parser.add_argument("-t", "--topCut", help="筛选top的百分比，默认筛选前百分之五", type=float,default=0.05)
     parser.add_argument("-s", "--SNPCut", help="过滤无效窗口的SNP阈值，默认过滤2以下", type=int,default=2)
+    parser.add_argument("-ld", "--xpclr_ld", help="XPCLR LD 参数", type=float, default=0.95)
     parser.add_argument("-win", "--win", help="窗口大小 bp", type=int,required=True)
     parser.add_argument("-step", "--step", help="步长 bp", type=int,required=True)
     parser.add_argument("-job", "--max_jobs", help="最大并行任务数，默认100", type=int,default=100)
@@ -61,6 +62,7 @@ if __name__ == '__main__':
     kegg_lib = argv.kegg_lib
     split_log = argv.split_log
     chr_list = argv.chr_list
+    xpclr_ld = argv.xpclr_ld
 
     with open(split_log,'w') as log_obj:
         for i in range(cut_num):
@@ -85,6 +87,7 @@ if __name__ == '__main__':
         'go_lib': go_lib,
         'split_log': split_log,
         'chr_list': chr_list,
+        'xpclr_ld': xpclr_ld,
         'script_dir':os.path.dirname(sys.argv[0])
     }
     with open('input_config.yaml', 'w') as config_file:
